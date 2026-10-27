@@ -1,8 +1,36 @@
-export interface CodeFile { path: string; language: 'python' | 'markdown'; content: string }
-export interface BugAnswer { file: string; line: number }
-export interface TestResult { name: string; status: 'passed' | 'failed'; message: string; ms: number }
-export interface TestReport { results: TestResult[]; stdout: string; stderr: string; error?: string }
-export interface RunResult { stdout: string; stderr: string; error?: string }
+export interface CodeFile {
+  path: string;
+  language: 'python' | 'markdown';
+  content: string;
+}
+
+export interface ChallengeFile extends CodeFile {}
+
+export interface BugAnswer {
+  file: string;
+  line: number;
+}
+
+export interface TestResult {
+  name: string;
+  status: 'passed' | 'failed';
+  message: string;
+  ms: number;
+}
+
+export interface TestReport {
+  results: TestResult[];
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
+export interface RunResult {
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
 export interface RoundMetadata {
   title: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
@@ -14,12 +42,18 @@ export interface RoundMetadata {
   decoy: { text: string; pointsTo: string };
   fix: { file: string; line: number; newText: string };
 }
+
 export interface Round extends RoundMetadata {
   id: string;
   entryFile: string;
   files: CodeFile[];
 }
-export interface Interaction { message: string; choice: 'trust' | 'verify' }
+
+export interface Interaction {
+  message: string;
+  choice: 'trust' | 'verify';
+}
+
 export interface RoundSession {
   outputAttempts: number;
   outputCorrect: boolean;
@@ -29,4 +63,34 @@ export interface RoundSession {
   submitted: boolean;
   timedOut: boolean;
   explanation: string;
+}
+
+export interface AssistantHint {
+  id: string;
+  text: string;
+  pointsTo: string;
+  isDecoy: boolean;
+  recommendedChoice: 'trust' | 'verify';
+}
+
+export interface ExpectedOutput {
+  buggy: string;
+  fixed: string;
+}
+
+export interface Challenge extends Round {
+  slug: string;
+  summary: string;
+  story: string;
+  expectedInvariants: string[];
+  estimatedMinutes: number;
+  tags: string[];
+  assistantHints: AssistantHint[];
+  hints: [string, string, string];
+  fixedFile: {
+    path: string;
+    content: string;
+  };
+  expectedOutput: ExpectedOutput;
+  modelExplanation: string;
 }

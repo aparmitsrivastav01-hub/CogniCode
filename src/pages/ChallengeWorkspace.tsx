@@ -1,64 +1,115 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Editor, { type OnMount } from '@monaco-editor/react';
-import { ArrowLeft, Bot, Check, ChevronDown, ChevronRight, CircleHelp, Clock3, FileCode2, FileText, Folder, Lightbulb, Play, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { type OnMount } from '@monaco-editor/react';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { BugAnswer, Interaction, RoundSession, TestReport } from '../types/round';
-import { cartRound, roundFiles } from '../data/rounds';
+import { getChallengeBySlug, challenges } from '../data/challenges';
 import { pyRunner } from '../lib/pyRunner';
+import { WorkspaceTopBar, type WorkspaceStep } from '../components/workspace/WorkspaceTopBar';
+import { WorkspaceLeftPanel } from '../components/workspace/WorkspaceLeftPanel';
+import { WorkspaceEditor } from '../components/workspace/WorkspaceEditor';
+import { WorkspaceBottomPanel, type WorkspaceBottomTab } from '../components/workspace/WorkspaceBottomPanel';
+import { WorkspaceAssistant } from '../components/workspace/WorkspaceAssistant';
+import { WorkspaceStatusBar } from '../components/workspace/WorkspaceStatusBar';
 
-type PanelTab = 'Output' | 'Find Bug' | 'Test Results' | 'Explain';
-type RuntimeState = 'loading' | 'ready' | 'offline';
 const normaliseOutput = (text: string) => text.trim().replace(/\s+/g, ' ');
 
 export default function ChallengeWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [activePath, setActivePath] = useState(cartRound.entryFile);
-  const [openPaths, setOpenPaths] = useState<string[]>([cartRound.entryFile]);
+
+  const round = useMemo(() => getChallengeBySlug(id) || challenges[0], [id]);
+  const pythonFiles = useMemo(
+    () => Object.fromEntries(round.files.map(file => [file.path, file.content])),
+    [round.files]
+  );
+
+  // Tab & Path navigation
+  const [activePath, setActivePath] = useState(round.entryFile);
+  const [openPaths, setOpenPaths] = useState<string[]>([round.entryFile]);
+
+  // Synchronize workspace state when round/slug changes
+  useEffect(() => {
+    finishedRef.current = false;
+    setActivePath(round.entryFile);
+    setOpenPaths([round.entryFile]);
+    setMarkedLines({});
+    setFinalMark(null);
+    setOutputAnswer('');
+    setOutputAttempts(0);
+    setOutputCorrect(false);
+    setRevealedOutput(null);
+    setOutputFeedback('');
+    setExplanation('');
+    setTestReport(null);
+    setSeconds((round.estimatedMinutes || 10) * 60);
+    setHintReveals([]);
+    setInteractions([]);
+  }, [round.id]);
+  const [leftTab, setLeftTab] = useState<'problem' | 'explorer'>('problem');
+  const [activeBottomTab, setActiveBottomTab] = useState<WorkspaceBottomTab>('Output');
+  const [activeStep, setActiveStep] = useState<WorkspaceStep>('predict');
+
+  // Editor state & cursor
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [markedLines, setMarkedLines] = useState<Record<string, number>>({});
   const [finalMark, setFinalMark] = useState<BugAnswer | null>(null);
-  const [activeTab, setActiveTab] = useState<PanelTab>('Output');
+
+  // Prediction Output State
   const [outputAnswer, setOutputAnswer] = useState('');
   const [outputAttempts, setOutputAttempts] = useState(0);
   const [outputCorrect, setOutputCorrect] = useState(false);
   const [revealedOutput, setRevealedOutput] = useState<string | null>(null);
   const [outputFeedback, setOutputFeedback] = useState('');
   const [checkingOutput, setCheckingOutput] = useState(false);
+
+  // Explanation State
   const [explanation, setExplanation] = useState('');
+
+  // Tests State
   const [testReport, setTestReport] = useState<TestReport | null>(null);
   const [testRunning, setTestRunning] = useState(false);
+
+  // Timer & Hints
   const [seconds, setSeconds] = useState(10 * 60);
   const [hintReveals, setHintReveals] = useState<number[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
-  const [runtimeState, setRuntimeState] = useState<RuntimeState>('loading');
+
+  // Runtime State
+  const [runtimeState, setRuntimeState] = useState<'loading' | 'ready' | 'offline'>('loading');
   const [runtimeError, setRuntimeError] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [openResponsivePanel, setOpenResponsivePanel] = useState<'problem' | 'assistant' | null>(null);
+
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const decorationRef = useRef<string[]>([]);
   const finishedRef = useRef(false);
-  const round = cartRound;
-  const activeFile = useMemo(() => round.files.find(file => file.path === activePath) ?? round.files[0], [activePath]);
+
+  const activeFile = useMemo(
+    () => round.files.find(file => file.path === activePath) ?? round.files[0],
+    [activePath, round.files]
+  );
   const markedBug = markedLines[activePath] === undefined ? null : { file: activePath, line: markedLines[activePath] };
   const locked = seconds <= 0 || finishedRef.current;
-  const pythonFiles = roundFiles;
 
-  useEffect(() => {
-    if (id !== round.id) navigate('/challenges', { replace: true });
-  }, [id, navigate, round.id]);
+  // Preload Pyodide runtime
   useEffect(() => {
     let active = true;
-    void pyRunner.preload().then(() => {
-      if (active) setRuntimeState('ready');
-    }).catch(error => {
-      if (!active) return;
-      setRuntimeState('offline');
-      setRuntimeError(error instanceof Error ? error.message : String(error));
-    });
-    return () => { active = false; };
+    void pyRunner
+      .preload()
+      .then(() => {
+        if (active) setRuntimeState('ready');
+      })
+      .catch(error => {
+        if (!active) return;
+        setRuntimeState('offline');
+        setRuntimeError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      active = false;
+    };
   }, []);
+
+  // Timer countdown
   useEffect(() => {
-    const timer = window.setInterval(() => setSeconds(value => Math.max(0, value - 1)), 1000);
+    const timer = window.setInterval(() => setSeconds(val => Math.max(0, val - 1)), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -75,79 +126,130 @@ export default function ChallengeWorkspace() {
       timedOut: seconds <= 0,
       explanation,
     };
-    navigate('/results', { state: session });
+    navigate('/results', { state: { ...session, roundId: round.id } });
   };
+
   useEffect(() => {
     if (seconds === 0) finish();
   }, [seconds]);
 
   const openFile = (path: string) => {
     setActivePath(path);
-    setOpenPaths(paths => paths.includes(path) ? paths : [...paths, path]);
+    setOpenPaths(paths => (paths.includes(path) ? paths : [...paths, path]));
   };
+
   const closeTab = (path: string) => {
     const next = openPaths.filter(item => item !== path);
     setOpenPaths(next);
-    if (activePath === path && next.length) setActivePath(next[next.length - 1]);
+    if (activePath === path && next.length) {
+      setActivePath(next[next.length - 1]);
+    }
   };
+
   const markLine = (line: number) => {
     if (line < 1 || locked || !activeFile.path.endsWith('.py')) return;
     setMarkedLines(lines => ({ ...lines, [activePath]: line }));
     setFinalMark({ file: activePath, line });
-    setStatusMessage('Marked ' + activePath + ' : ' + line);
+
     const editor = editorRef.current;
-    if (editor) decorationRef.current = editor.deltaDecorations(decorationRef.current, [{
-      range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
-      options: { isWholeLine: true, className: 'bug-line-highlight', glyphMarginClassName: 'bug-line-glyph' },
-    }]);
+    if (editor) {
+      decorationRef.current = editor.deltaDecorations(decorationRef.current, [
+        {
+          range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+          options: {
+            isWholeLine: true,
+            className: 'bug-line-highlight',
+            glyphMarginClassName: 'bug-line-glyph',
+          },
+        },
+      ]);
+    }
   };
+
+  const clearMark = () => {
+    setMarkedLines(lines => {
+      const copy = { ...lines };
+      delete copy[activePath];
+      return copy;
+    });
+    setFinalMark(null);
+    if (editorRef.current) {
+      decorationRef.current = editorRef.current.deltaDecorations(decorationRef.current, []);
+    }
+  };
+
   const onEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
-    monaco.editor.defineTheme('cognicode-black', {
+
+    // Custom theme matching the tokens from the visual design
+    monaco.editor.defineTheme('cognicode-studio', {
       base: 'vs-dark',
       inherit: true,
       rules: [
-        { token: 'keyword', foreground: 'B9A6FF' },
-        { token: 'string', foreground: 'D7C1FF' },
-        { token: 'comment', foreground: '847B90' },
+        { token: 'keyword', foreground: 'A78BFA', fontStyle: 'bold' },
+        { token: 'string', foreground: '86EFAC' },
+        { token: 'number', foreground: 'FBBF24' },
+        { token: 'comment', foreground: '6B7280', fontStyle: 'italic' },
+        { token: 'identifier', foreground: 'E5E7EB' },
+        { token: 'type', foreground: '67E8F9' },
+        { token: 'function', foreground: '60A5FA' },
       ],
       colors: {
         'editor.background': '#000000',
-        'editor.foreground': '#E8E4EF',
-        'editorLineNumber.foreground': '#756D80',
-        'editorLineNumber.activeForeground': '#D8D0E4',
+        'editor.foreground': '#e5e7eb',
+        'editorLineNumber.foreground': '#4b5563',
+        'editorLineNumber.activeForeground': '#e5e7eb',
         'editorGutter.background': '#000000',
-        'editor.lineHighlightBackground': '#08060B',
-        'editor.selectionBackground': '#5B43A855',
-        'editorCursor.foreground': '#A48CFF',
-        'editorWidget.background': '#050505',
-        'editorWidget.border': '#392B52',
+        'editor.lineHighlightBackground': '#0d0d12',
+        'editor.selectionBackground': '#6366f133',
+        'editorCursor.foreground': '#6366f1',
+        'editorWidget.background': '#08080a',
+        'editorWidget.border': '#1a1a24',
       },
     });
-    monaco.editor.setTheme('cognicode-black');
+    monaco.editor.setTheme('cognicode-studio');
+
     const markedLine = markedLines[activePath];
-    if (markedLine) decorationRef.current = editor.deltaDecorations([], [{
-      range: { startLineNumber: markedLine, startColumn: 1, endLineNumber: markedLine, endColumn: 1 },
-      options: { isWholeLine: true, className: 'bug-line-highlight', glyphMarginClassName: 'bug-line-glyph' },
-    }]);
+    if (markedLine) {
+      decorationRef.current = editor.deltaDecorations([], [
+        {
+          range: { startLineNumber: markedLine, startColumn: 1, endLineNumber: markedLine, endColumn: 1 },
+          options: {
+            isWholeLine: true,
+            className: 'bug-line-highlight',
+            glyphMarginClassName: 'bug-line-glyph',
+          },
+        },
+      ]);
+    }
+
+    editor.onDidChangeCursorPosition(e => {
+      setCursorPos({ line: e.position.lineNumber, col: e.position.column });
+    });
+
     editor.onMouseDown(event => {
       const position = event.target.position;
-      if (position && (event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS || event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN)) markLine(position.lineNumber);
+      if (
+        position &&
+        (event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS ||
+          event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN)
+      ) {
+        markLine(position.lineNumber);
+      }
     });
   };
+
   const revealHint = () => {
     if (locked) return;
-    if (hintReveals.length >= round.explainRubric.length) {
-      setStatusMessage('All hints have been revealed.');
-      return;
-    }
+    if (hintReveals.length >= round.explainRubric.length) return;
     setHintReveals(items => [...items, items.length]);
   };
-  const recordDecoyChoice = (choice: Interaction['choice']) => {
+
+  const recordDecoyChoice = (messageText: string, choice: 'trust' | 'verify') => {
     if (locked) return;
-    setInteractions(items => [...items, { message: round.decoy.text, choice }]);
-    setStatusMessage(choice === 'trust' ? 'Trust choice recorded.' : 'Verify choice recorded.');
+    setInteractions(items => [...items, { message: messageText, choice }]);
   };
+
   const checkOutput = async () => {
     if (locked || runtimeState !== 'ready' || checkingOutput) return;
     setCheckingOutput(true);
@@ -157,18 +259,21 @@ export default function ChallengeWorkspace() {
       setOutputAttempts(count => count + 1);
       if (result.error) throw new Error(result.stderr || result.error);
       const correct = normaliseOutput(outputAnswer) === normaliseOutput(result.stdout);
-      setOutputCorrect(previous => previous || correct);
-      setOutputFeedback(correct ? 'Correct. Your prediction matches the program output.' : 'Not quite. Try again or reveal the output.');
+      setOutputCorrect(prev => prev || correct);
+      setOutputFeedback(
+        correct
+          ? 'Correct. Your prediction matches the program output.'
+          : 'Not quite. Try again or run the entry to inspect output.'
+      );
       if (correct) setRevealedOutput(result.stdout);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setRuntimeState('offline');
-      setRuntimeError(message);
-      setOutputFeedback('Python execution failed: ' + message);
+      setOutputFeedback('Execution error: ' + message);
     } finally {
       setCheckingOutput(false);
     }
   };
+
   const revealOutput = async () => {
     if (locked || runtimeState !== 'ready' || checkingOutput) return;
     setCheckingOutput(true);
@@ -176,16 +281,15 @@ export default function ChallengeWorkspace() {
       const result = await pyRunner.runEntry(pythonFiles, round.entryFile);
       if (result.error) throw new Error(result.stderr || result.error);
       setRevealedOutput(result.stdout);
-      setOutputFeedback('Output revealed from a real Python run.');
+      setOutputFeedback('Output revealed from live Python run.');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setRuntimeState('offline');
-      setRuntimeError(message);
-      setOutputFeedback('Python execution failed: ' + message);
+      setOutputFeedback('Execution error: ' + message);
     } finally {
       setCheckingOutput(false);
     }
   };
+
   const runTests = async () => {
     if (locked || runtimeState !== 'ready' || testRunning) return;
     setTestRunning(true);
@@ -195,69 +299,133 @@ export default function ChallengeWorkspace() {
       setTestReport(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setRuntimeState('offline');
-      setRuntimeError(message);
       setTestReport({ results: [], stdout: '', stderr: '', error: message });
     } finally {
       setTestRunning(false);
     }
   };
 
-  const leftFiles = round.files.filter(file => file.path.startsWith('app/'));
-  const testFile = round.files.find(file => file.path.startsWith('tests/'));
-  const readme = round.files.find(file => file.path === 'README.md');
-  const formatted = Math.floor(seconds / 60).toString().padStart(2, '0') + ':' + (seconds % 60).toString().padStart(2, '0');
-  const tabs: PanelTab[] = ['Output', 'Find Bug', 'Test Results', 'Explain'];
-  return <div className="workspace-page">
-    <header className="workspace-topbar">
-      <Link to="/challenges" className="workspace-back"><ArrowLeft size={16}/><span>Challenges</span></Link><span className="topbar-divider"/>
-      <strong>{round.title}</strong><span className="difficulty medium">{round.difficulty}</span><span className="category-pill">{round.category}</span><span className="workspace-spacer"/>
-      <div className="workspace-panel-toggles">
-        <button className={openResponsivePanel === 'problem' ? 'active' : ''} onClick={() => setOpenResponsivePanel(panel => panel === 'problem' ? null : 'problem')} aria-expanded={openResponsivePanel === 'problem'}>Problem</button>
-        <button className={openResponsivePanel === 'assistant' ? 'active' : ''} onClick={() => setOpenResponsivePanel(panel => panel === 'assistant' ? null : 'assistant')} aria-expanded={openResponsivePanel === 'assistant'}>Assistant</button>
+  const handleStepChange = (step: WorkspaceStep) => {
+    setActiveStep(step);
+    if (step === 'predict') {
+      setActiveBottomTab('Output');
+    } else if (step === 'debug') {
+      setActiveBottomTab('Find Bug');
+    } else if (step === 'explain') {
+      setActiveBottomTab('Explain');
+    }
+  };
+
+  const formattedTime = `${Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+
+  const assistantMessages = round.assistantHints?.length
+    ? round.assistantHints.map(h => ({
+        id: h.id,
+        text: h.text,
+        pointsTo: h.pointsTo,
+      }))
+    : [
+        {
+          text: round.decoy.text,
+          pointsTo: round.decoy.pointsTo,
+        },
+      ];
+
+  return (
+    <div className="ws-viewport">
+      {/* 1. TOP BAR */}
+      <WorkspaceTopBar
+        category={round.category}
+        roundTitle={round.title}
+        difficulty={round.difficulty}
+        activeStep={activeStep}
+        onStepChange={handleStepChange}
+        runtimeStatus={runtimeState}
+        formattedTime={formattedTime}
+        hintsRevealedCount={hintReveals.length}
+        totalHintsCount={round.explainRubric.length}
+        onRevealHint={revealHint}
+        onSubmit={finish}
+        locked={locked}
+      />
+
+      {/* 3-COLUMN WORKSPACE BODY */}
+      <div className="ws-columns-body">
+        {/* 2. LEFT PANEL */}
+        <WorkspaceLeftPanel
+          activeTab={leftTab}
+          onTabChange={setLeftTab}
+          category={round.category}
+          title={round.title}
+          description={round.description}
+          expectedBehaviour={round.expectedBehaviour}
+          hintsRevealed={hintReveals}
+          hintsRubric={round.explainRubric}
+          files={round.files}
+          activePath={activePath}
+          onOpenFile={openFile}
+          markedLines={markedLines}
+        />
+
+        {/* 3. CENTER PANEL: Editor + Bottom Tool Panel */}
+        <div className="ws-center-panel">
+          <WorkspaceEditor
+            openPaths={openPaths}
+            activePath={activePath}
+            activeFile={activeFile}
+            markedLines={markedLines}
+            onSelectTab={openFile}
+            onCloseTab={closeTab}
+            onEditorMount={onEditorMount}
+          />
+
+          <WorkspaceBottomPanel
+            activeTab={activeBottomTab}
+            onTabChange={setActiveBottomTab}
+            entryFile={round.entryFile}
+            outputAnswer={outputAnswer}
+            onOutputAnswerChange={setOutputAnswer}
+            onCheckOutput={checkOutput}
+            onRunEntry={revealOutput}
+            checkingOutput={checkingOutput}
+            revealedOutput={revealedOutput}
+            outputFeedback={outputFeedback}
+            outputCorrect={outputCorrect}
+            runtimeState={runtimeState}
+            runtimeError={runtimeError}
+            locked={locked}
+            markedBug={markedBug}
+            onClearMark={clearMark}
+            onSubmit={finish}
+            onRunTests={runTests}
+            testRunning={testRunning}
+            testReport={testReport}
+            explanation={explanation}
+            onExplanationChange={setExplanation}
+          />
+        </div>
+
+        {/* 4. RIGHT PANEL: Assistant Sidebar */}
+        <WorkspaceAssistant
+          roundTitle={round.title}
+          entryFile={round.entryFile}
+          messages={assistantMessages}
+          interactions={interactions}
+          onRecordChoice={recordDecoyChoice}
+          onSelectTarget={openFile}
+          locked={locked}
+        />
       </div>
-      <span className="runtime-state">{runtimeState === 'loading' ? 'Python runtime loading' : runtimeState === 'ready' ? 'Python ready' : 'Offline fallback'}</span>
-      <span className="timer"><Clock3 size={15}/>{formatted}</span><button className="button button-quiet compact" onClick={revealHint} disabled={locked}><Lightbulb size={15}/>Hints ({hintReveals.length}/{round.explainRubric.length})</button>
-      <button className="button button-primary compact" onClick={finish} disabled={locked}>Submit <ArrowLeft size={14} className="rotate-icon"/></button>
-    </header>
-    <div className="workspace-layout" data-open-panel={openResponsivePanel ?? ''}>
-      <aside className="problem-panel">
-        <div className="panel-topline"><span>PROBLEM</span><span className="round-id">{round.id}</span></div>
-        <div className="problem-content"><span className="eyebrow">DEBUGGING · PYTHON</span><h1>{round.title}</h1><p>{round.description}</p>
-          <h2>Expected behaviour</h2><ul>{round.expectedBehaviour.map(text=><li key={text}>{text}</li>)}</ul>
-          {hintReveals.length > 0 && <div className="hint-callout"><Sparkles size={16}/><div><b>Hint {hintReveals.length}</b><p>{round.explainRubric[hintReveals[hintReveals.length - 1]]}</p></div></div>}
-          <div className="problem-bottom"><span><Clock3 size={14}/>Timed round</span><span>{round.files.filter(file => file.language === 'python').length} Python files</span></div>
-        </div>
-      </aside>
-      <section className="editor-column">
-        <div className="explorer"><div className="explorer-title">EXPLORER <ChevronDown size={13}/></div><div className="explorer-root"><ChevronDown size={13}/><span>CogniCode CART</span></div>
-          <div className="tree-folder"><ChevronDown size={13}/><Folder size={14}/><span>app</span></div>
-          {leftFiles.map(file=><button key={file.path} className={'tree-file' + (activePath===file.path?' selected':'')} onClick={()=>openFile(file.path)}><FileCode2 size={14}/><span>{file.path.split('/').pop()}</span>{markedLines[file.path]!==undefined&&<span className="file-bug-dot" aria-label="Bug line marked"/>}</button>)}
-          <div className="tree-folder"><ChevronRight size={13}/><Folder size={14}/><span>tests</span></div>
-          {testFile&&<button className={'tree-file nested' + (activePath===testFile.path?' selected':'')} onClick={()=>openFile(testFile.path)}><FileCode2 size={14}/><span>{testFile.path.split('/').pop()}</span></button>}
-          {readme&&<button className={'tree-file root-file' + (activePath===readme.path?' selected':'')} onClick={()=>openFile(readme.path)}><FileText size={14}/><span>README.md</span></button>}
-        </div>
-        <div className="editor-area">
-          <div className="editor-tabs">{openPaths.map(path=><div key={path} className={'editor-tab' + (path===activePath?' active':'')}><button onClick={()=>setActivePath(path)}>{path.endsWith('.py')?<FileCode2 size={13}/>:<FileText size={13}/>}<span>{path.split('/').pop()}</span></button><button className="tab-close" onClick={()=>closeTab(path)} aria-label={'Close ' + path}><X size={12}/></button></div>)}</div>
-          <div className="editor-path"><span>{activePath}</span><span>{activeFile.language === 'python' ? 'Python' : 'Markdown'} · read only</span></div>
-          <Editor key={activePath} height="100%" language={activeFile.language} value={activeFile.content} theme="cognicode-black" onMount={onEditorMount} options={{ readOnly:true, minimap:{enabled:false}, fontSize:13, fontFamily:'JetBrains Mono, monospace', lineNumbers:'on', glyphMargin:true, scrollBeyondLastLine:false, wordWrap:'on', padding:{top:12}, renderLineHighlight:'none', overviewRulerLanes:0, scrollbar:{verticalScrollbarSize:8,horizontalScrollbarSize:8}, contextmenu:false }} />
-        </div>
-        <div className="bottom-panel">
-          <div className="bottom-tabs">{tabs.map(tab=><button key={tab} className={activeTab===tab?'active':''} onClick={()=>setActiveTab(tab)}>{tab}{tab==='Test Results'&&testReport&&<span className="tab-count">{testReport.results.length}</span>}</button>)}</div>
-          <div className="bottom-content">
-            {activeTab==='Output'&&<div className="output-form"><label htmlFor="output-answer">What output do you expect?</label><div><input id="output-answer" value={outputAnswer} onChange={e=>setOutputAnswer(e.target.value)} placeholder="Enter the expected output" disabled={locked||runtimeState!=='ready'}/><button className="button button-quiet compact" onClick={()=>void checkOutput()} disabled={locked||runtimeState!=='ready'||checkingOutput}>{checkingOutput?'Running…':'Check output'}</button><button className="button button-quiet compact" onClick={()=>void revealOutput()} disabled={locked||runtimeState!=='ready'||checkingOutput}>Reveal</button></div>{outputFeedback&&<small>{outputFeedback}</small>}{revealedOutput!==null&&<pre className="real-output">{revealedOutput}</pre>}{runtimeState==='offline'&&<div className="offline-fallback"><b>Offline fallback</b><span>Python could not start, so output and tests are unavailable. {runtimeError}</span></div>}</div>}
-            {activeTab==='Find Bug'&&<div className="findbug-panel"><div><b>Mark the faulty line</b><small>Click a line number in the editor. Marks persist when switching files.</small></div>{markedBug?<span className="marked-location"><span className="bug-glyph">●</span>{markedBug.file} : {markedBug.line}</span>:<span className="muted-label">No line marked in this file</span>}<button className="button button-primary compact" onClick={finish} disabled={locked}>Submit answer</button></div>}
-            {activeTab==='Test Results'&&<div className="tests-panel">{runtimeState==='offline'?<div className="offline-fallback"><b>Offline fallback</b><span>Python could not start, so tests are unavailable. {runtimeError}</span></div>:<><div className="test-empty"><span>Run tests/test_cart.py with Python unittest.</span><button className="button button-primary compact" onClick={()=>void runTests()} disabled={locked||runtimeState!=='ready'||testRunning}><Play size={13}/>{testRunning?'Running…':'Run Tests'}</button></div>{testReport&&<><div className="test-list">{testReport.results.map(test=><div key={test.name} className="test-row"><span className={test.status==='passed'?'test-status pass':'test-status fail'}>{test.status==='passed'?<Check size={13}/>:<X size={13}/>}<span>{test.status}</span></span><code>{test.name}</code><span className="test-ms">{test.ms} ms</span>{test.message&&<small>{test.message}</small>}</div>)}</div>{testReport.stderr&&<pre className="test-stderr">{testReport.stderr}</pre>}</>}</>}</div>}
-            {activeTab==='Explain'&&<div className="explain-panel"><label htmlFor="explanation">Explain why the cart behaves this way</label><textarea id="explanation" value={explanation} onChange={e=>setExplanation(e.target.value)} placeholder="Describe how the IDs flow through the code…" disabled={locked}/><span>Explanation is not graded yet.</span></div>}
-          </div>
-        </div>
-      </section>
-      <aside className="assistant-panel"><div className="assistant-heading"><span className="assistant-avatar"><Bot size={18}/></span><div><b>Assistant suggestion</b><small>Scripted demo decoy</small></div><span className="online-dot"/></div>
-        <div className="assistant-context"><span className="context-tag">ROUND CONTEXT</span><p>{round.title}</p><span>Local suggestion · no network</span></div>
-        <div className="chat-messages"><article className="chat-message"><div className="message-label"><span className="message-avatar"><Bot size={15}/></span><b>Insight</b><small>Demo</small></div><p>{round.decoy.text}</p><section className="suggested-direction"><span className="context-tag">SUGGESTED FILE</span><code>{round.decoy.pointsTo}</code></section><div className="message-actions"><button onClick={()=>recordDecoyChoice('trust')} disabled={locked}><Check size={14}/>Trust</button><button onClick={()=>recordDecoyChoice('verify')} disabled={locked}><ShieldCheck size={14}/>Verify</button></div></article>{statusMessage&&<p className="interaction-status">{statusMessage}</p>}</div>
-        <div className="assistant-footnote"><CircleHelp size={13}/><span>Compare this suggestion with the source before deciding.</span></div>
-      </aside>
+
+      {/* 5. STATUS BAR */}
+      <WorkspaceStatusBar
+        activePath={activePath}
+        cursorPos={cursorPos}
+        markedBug={markedBug}
+        pyodideVersion="0.27.7"
+      />
     </div>
-    <footer className="workspace-status"><span className="status-brand"><span className="status-dot"/>CogniCode</span><span>{Object.keys(markedLines).length ? 'Bug line marked' : 'No bug marked'}</span><span className="status-spacer"/><span>{runtimeState === 'loading' ? 'Python runtime loading' : runtimeState === 'ready' ? 'Python · Pyodide 0.27.7' : 'Offline fallback'}</span></footer>
-  </div>;
+  );
 }

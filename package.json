@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "verify:round": "python scripts/verify_round.py",
+    "verify:challenges": "python scripts/verify_all_challenges.py",
     "copy:pyodide": "node scripts/copy-pyodide.mjs",
     "postinstall": "npm run copy:pyodide"
   },
