@@ -1,0 +1,6 @@
+import { ArrowRight, Code2, LockKeyhole } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Header } from '../components/Header';
+import { cartRound } from '../data/rounds';
+import { Footer } from '../components/Footer';
+export default function Challenges() { return <div className="page-shell"><Header/><main className="listing-page"><div className="eyebrow"><span className="eyebrow-dot"/>PRACTICE ROUNDS</div><h1>Choose your next <span className="serif-accent">challenge.</span></h1><p className="page-intro">A focused space to practise reading code and checking your reasoning.</p><article className="challenge-card"><div className="challenge-top"><span className="category-pill">{cartRound.category}</span><span className="difficulty medium">{cartRound.difficulty}</span></div><h2>{cartRound.title}</h2><p>{cartRound.description}</p><div className="tag-row"><span className="tag">Python</span><span className="tag">Multi-file</span></div><div className="challenge-bottom"><span><Code2 size={15}/>Python · runnable demo</span><Link className="button button-primary" to={'/challenge/' + cartRound.id}>Start round <ArrowRight size={16}/></Link></div></article><p className="demo-note"><LockKeyhole size={15}/> One playable demo round. More challenges are on the way.</p></main><Footer/></div>; }

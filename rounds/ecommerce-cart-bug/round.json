@@ -1,0 +1,26 @@
+{
+  "title": "E-commerce Cart Bug",
+  "difficulty": "Medium",
+  "category": "Debugging",
+  "description": "A customer adds the same product to their cart twice, but the cart keeps two separate lines instead of combining the quantities. Trace the code across the files and find the bug.",
+  "expectedBehaviour": [
+    "Adding the same product twice should create one cart line.",
+    "The line quantity should equal the total number of items added.",
+    "Predict the actual cart output before finding the bug."
+  ],
+  "bug": { "file": "app/cart.py", "line": 12 },
+  "explainRubric": [
+    "Identifies that incoming IDs are normalized before storage.",
+    "Explains the string and integer comparison mismatch.",
+    "Describes why the existing line is not incremented."
+  ],
+  "decoy": {
+    "text": "The CartItem model may be treating product_id as the wrong type. Check the field definition in models.py; that is likely where the quantities stop merging.",
+    "pointsTo": "app/models.py"
+  },
+  "fix": {
+    "file": "app/cart.py",
+    "line": 12,
+    "newText": "            if item.product_id == normalized_id:"
+  }
+}

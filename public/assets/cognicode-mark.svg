@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" fill="none">
+  <defs>
+    <filter id="outer-glow" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0.49 0 0 0 0.49 0 0.36 0 0 0.36 0 0 1 0 1 0 0 0 .75 0" result="purple-glow"/>
+      <feMerge><feMergeNode in="purple-glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="symbol-glow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3.2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#outer-glow)">
+    <rect x="20" y="18" width="120" height="124" rx="34" stroke="#7C5CFF" stroke-width="3"/>
+    <rect x="24" y="22" width="112" height="116" rx="30" stroke="#B5A1FF" stroke-opacity=".42" stroke-width="1.2"/>
+  </g>
+  <g stroke="#9B7DFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="13" filter="url(#symbol-glow)">
+    <path d="m61 54-19 26 19 26"/>
+    <path d="m99 54 19 26-19 26"/>
+    <path d="m89 43-19 74" stroke="#D9CEFF"/>
+  </g>
+</svg>
