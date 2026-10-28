@@ -4680,3 +4680,111 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   font-family: var(--ws-font-mono);
 }
 
+/* ==============================================================================
+   How It Works Section & Responsive 4-Step Grid
+   ============================================================================== */
+
+.how-it-works-section {
+  padding: 68px 0 76px;
+  border-bottom: 1px solid #18131f;
+  scroll-margin-top: 80px;
+}
+
+.how-it-works-section .section-heading {
+  text-align: center;
+  max-width: 680px;
+  margin: 0 auto 36px;
+}
+
+.how-it-works-section .section-heading h2 {
+  margin: 12px 0 10px;
+  color: #fff;
+  font-size: 31px;
+  font-weight: 600;
+  letter-spacing: -1.15px;
+}
+
+.how-it-works-subtitle {
+  color: #b1acb8;
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.how-it-works-demo-wrap {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto 32px;
+}
+
+.how-it-works-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.how-it-works-card {
+  padding: 20px 18px;
+  background: #050508;
+  border: 1px solid #241c33;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.how-it-works-card:hover {
+  transform: translateY(-3px);
+  border-color: #5d4294;
+  box-shadow: 0 10px 30px rgba(93, 59, 181, 0.12);
+}
+
+.how-it-works-step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--purple-bright);
+  background: rgba(124, 92, 255, 0.12);
+  border: 1px solid rgba(124, 92, 255, 0.25);
+  padding: 2px 7px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.how-it-works-step-title {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.2px;
+}
+
+.how-it-works-step-desc {
+  margin: 0;
+  font-size: 12px;
+  color: #a39cb0;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .how-it-works-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .how-it-works-section {
+    padding: 48px 0 54px;
+  }
+  .how-it-works-grid {
+    grid-template-columns: 1fr;
+  }
+  .how-it-works-card {
+    padding: 16px 14px;
+  }
+}
+
+

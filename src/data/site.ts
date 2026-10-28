@@ -1,7 +1,11 @@
 export const brand = { name: 'CogniCode', headlineStart: 'AI can write code for you.', headlinePrefix: 'Can you ', headlineAccent: 'understand', headlineSuffix: ' it?', subtext: 'Build the skill that makes you better at every codebase: reading, reasoning, and knowing when AI gets it wrong.' };
 export const navItems = [
-  { label: 'Home', to: '/' }, { label: 'Challenges', to: '/challenges' }, { label: 'Learn', to: '/learn' },
-  { label: 'Leaderboard', to: '/leaderboard' }, { label: 'About', to: '/about' },
+  { label: 'Home', to: '/' },
+  { label: 'How it works', to: '/#how-it-works' },
+  { label: 'Challenges', to: '/challenges' },
+  { label: 'Learn', to: '/learn' },
+  { label: 'Leaderboard', to: '/leaderboard' },
+  { label: 'About', to: '/about' },
 ];
 export const pillars = [
   { icon: 'BookOpen', title: 'Understand', text: 'Trace unfamiliar code across files and follow the logic.' },

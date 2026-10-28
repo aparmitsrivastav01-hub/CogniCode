@@ -1,18 +1,48 @@
+import { useEffect } from 'react';
 import { ArrowRight, BookOpen, Bug, Code2, ShieldCheck, Workflow } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
 import { CodeFlowVisualization } from '../components/CodeFlowVisualization';
+import { HowItWorks } from '../components/HowItWorks';
 import { RoundTimeline } from '../components/home/roundTimeline/RoundTimeline';
 import { brand, homeCopy, pillars, whyNow } from '../data/site';
 
 const icons = { BookOpen, Workflow, Bug, ShieldCheck };
 
 export default function Home() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.hash === '#how-it-works' || window.location.hash === '#how-it-works') {
+      const el = document.getElementById('how-it-works');
+      if (el) {
+        const prefersReducedMotion =
+          typeof window !== 'undefined' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+        }, 60);
+      }
+    }
+  }, [location.hash]);
+
+  const scrollToDemo = () => {
+    const el = document.getElementById('how-it-works');
+    if (el) {
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+      window.history.replaceState(null, '', '#how-it-works');
+    }
+  };
+
   return (
     <div className="page-shell">
       <Header />
       <main className="home-main">
+        {/* HERO SECTION */}
         <section className="hero">
           <div className="hero-copy">
             <div className="eyebrow">
@@ -32,7 +62,11 @@ export default function Home() {
                 {homeCopy.start}
                 <ArrowRight size={17} />
               </Link>
-              <button className="button button-outline" disabled title={homeCopy.demoTooltip}>
+              <button
+                className="button button-outline"
+                onClick={scrollToDemo}
+                title="Watch walkthrough demo"
+              >
                 <span className="play-icon">▶</span>
                 {homeCopy.demo}
               </button>
@@ -50,6 +84,10 @@ export default function Home() {
           </div>
         </section>
 
+        {/* HOW COGNICODE WORKS (DEMO PLAYER + 4 STAGES) */}
+        <HowItWorks />
+
+        {/* PILLARS PRACTICE */}
         <section className="pillars-section">
           <div className="section-heading">
             <span className="eyebrow">THE PRACTICE</span>
@@ -78,6 +116,7 @@ export default function Home() {
         {/* HOW A ROUND WORKS TIMELINE */}
         <RoundTimeline />
 
+        {/* WHY NOW STRIP */}
         <section className="why-strip">
           <div className="why-icon">
             <Code2 size={17} />
