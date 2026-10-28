@@ -16,7 +16,7 @@ import {
   ShieldAlert,
   Server,
 } from 'lucide-react';
-import type { Challenge, BugAnswer, TestReport } from '../../types/round';
+import type { Challenge, BugAnswer, TestReport, WorkflowStageId } from '../../types/round';
 import type { WorkspaceStep } from './WorkspaceTopBar';
 import { GemmaService, type ChatMessage, type GemmaApiStatus, DEFAULT_GEMMA_MODEL } from '../../lib/gemma';
 
@@ -24,7 +24,7 @@ export interface WorkspaceAssistantProps {
   roundTitle: string;
   entryFile: string;
   challenge: Challenge;
-  currentStage: WorkspaceStep;
+  currentStage: WorkflowStageId | WorkspaceStep | string;
   markedBug: BugAnswer | null;
   testReport: TestReport | null;
   outputAnswer: string;

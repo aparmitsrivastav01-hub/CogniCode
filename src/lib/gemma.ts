@@ -65,6 +65,11 @@ Your purpose is not to solve every challenge automatically. Your purpose is to m
 
 export const DEFAULT_GEMMA_MODEL = 'gemma-4-26b-a4b-it';
 
+export interface EvaluationResult {
+  accepted: boolean;
+  feedback: string;
+}
+
 export class GemmaService {
   private static cachedStatus: GemmaApiStatus | null = null;
 
@@ -107,7 +112,16 @@ export class GemmaService {
     const q = userQuery.toLowerCase();
     const { challenge, currentStage, testReport, markedBug } = ctx;
 
-    // 1. Stage 2 / Procedure request
+    // 1. Stage 1 / Understand
+    if (currentStage === 'understand' || q.includes('understand') || q.includes('how it works')) {
+      return `To understand **${challenge.title}** before debugging:
+1. Review the problem context in the left panel.
+2. Inspect \`${challenge.entryFile}\` to see the entry point and input data.
+3. In the text area below, summarize what the program does, how data flows through the functions, and what behavior is expected.
+4. Once you submit your explanation, Gemma 4 will review it and unlock the test runner.`;
+    }
+
+    // 2. Stage 2 / Procedure request
     if (
       q.includes('procedure') ||
       q.includes('how to approach') ||
@@ -119,13 +133,13 @@ export class GemmaService {
 
 1. **Trace Entry to Service:** Open \`${challenge.entryFile}\` and trace which model objects and inputs are constructed before reaching the service layer.
 2. **Inspect Data Transformations:** Check which variables or identifiers are modified or normalized before being stored or compared in \`app/\`.
-3. **Run the Test Suite:** Go to the **Test Results** tab and run the unit tests. Note which specific assertion fails and read the exact exception message.
+3. **Run the Test Suite:** Go to the **Run Tests** tab and run the unit tests. Note which specific assertion fails and read the exact exception message.
 4. **Form and Verify a Hypothesis:** Find the conditional statement or operation responsible for the discrepancy. Click the gutter in the editor to mark your suspected line, then test your reasoning.
 
 What part of the data flow would you like to examine first?`;
     }
 
-    // 2. Stage 3/5 / Test Results interpretation
+    // 3. Stage 2 / Test Results interpretation
     if (
       q.includes('test') ||
       q.includes('fail') ||
@@ -134,7 +148,7 @@ What part of the data flow would you like to examine first?`;
       currentStage === 'verify'
     ) {
       if (!testReport || testReport.results.length === 0) {
-        return `You have not run the unit tests yet. Click **"Run tests"** in the **Test Results** panel so we have genuine execution evidence to examine together. I will help you interpret the failure details once executed.`;
+        return `You have not run the unit tests yet. Click **"Run tests"** in the **Run Tests** panel so we have genuine execution evidence to examine together. I will help you interpret the failure details once executed.`;
       }
 
       const failures = testReport.results.filter(r => r.status === 'failed');
@@ -154,12 +168,13 @@ To investigate this:
 What do you notice about the inputs in that failing test?`;
     }
 
-    // 3. Stage 4 / Debugging and Bug Marking
+    // 4. Stage 3 / Debugging and Bug Marking
     if (
       q.includes('debug') ||
       q.includes('bug') ||
       q.includes('line') ||
       q.includes('suspect') ||
+      currentStage === 'find_bug' ||
       currentStage === 'investigate'
     ) {
       if (markedBug) {
@@ -167,7 +182,7 @@ What do you notice about the inputs in that failing test?`;
 To verify whether this is supported by test evidence:
 - Check what operation happens on line ${markedBug.line}.
 - Ask: does changing or fixing this line directly address the failing test assertion?
-- Run the test suite again or inspect the output in the **Output** tab to verify your reasoning.`;
+- Run the test suite again or inspect the output in the **Predict & Explain** tab to verify your reasoning.`;
       }
       return `To find the root cause:
 1. Examine the condition or loop in the file responsible for the core logic.
@@ -177,11 +192,12 @@ To verify whether this is supported by test evidence:
 Which file would you like to inspect first?`;
     }
 
-    // 4. Stage 6 / Output Explanation
+    // 5. Stage 4 / Output Explanation
     if (
       q.includes('output') ||
       q.includes('explain') ||
       q.includes('trace') ||
+      currentStage === 'predict_explain' ||
       currentStage === 'explain'
     ) {
       return `Let's break down how this program executes step by step:
@@ -189,7 +205,7 @@ Which file would you like to inspect first?`;
 2. The operations are passed to the service layer, where state transformations occur.
 3. Because of how the data invariants are evaluated, the resulting return value or state output reflects the observed behavior.
 
-Take a look at the **Explain** tab below—summarize in your own words why the code produces this behavior, then submit your answer!`;
+Take a look at the **Predict & Explain** tab below—summarize in your own words why the code produces this behavior, then submit your answer!`;
     }
 
     // Default friendly mentor prompt
@@ -260,8 +276,231 @@ Take a look at the **Explain** tab below—summarize in your own words why the c
   }
 
   /**
-   * Evaluates the user's predicted output against the actual program execution.
-   * Explains discrepancies, key variable states, and provides learning-oriented feedback.
+   * Evaluates the user's conceptual explanation in Step 1 (Understand the Code).
+   * Validates conceptual understanding without requiring exact match with reference text.
+   */
+  static async evaluateUnderstanding(params: {
+    challenge: Challenge;
+    explanation: string;
+  }): Promise<EvaluationResult> {
+    const { challenge, explanation } = params;
+    const cleanExp = explanation.trim();
+    const wordCount = cleanExp ? cleanExp.split(/\s+/).length : 0;
+
+    // Check minimum threshold
+    if (wordCount < 10) {
+      return {
+        accepted: false,
+        feedback:
+          'Your explanation is very brief. Before moving to tests, explain in a few more sentences what the program is supposed to do, how inputs are processed, and what behavior you expect.',
+      };
+    }
+
+    const userPrompt = `I am at Stage 1 (Understand the Code) for "${challenge.title}".
+Before debugging or seeing test results, I have explained how I understand this program:
+
+"""
+${cleanExp}
+"""
+
+Please evaluate my explanation:
+1. Does my explanation demonstrate a reasonable conceptual understanding of the program's purpose, data flow, and expected behavior?
+2. If reasonable understanding is shown (even if phrased simply or imperfectly), include "[VERDICT: ACCEPTED]" in your reply, followed by encouraging feedback highlighting what was explained well.
+3. If core concepts are missing or significantly confused, include "[VERDICT: REVISION_NEEDED]" in your reply, followed by a constructive question asking me to clarify the missing concepts.
+Do not reveal the root-cause bug or final answer.`;
+
+    const ctx: GemmaMentorContext = {
+      challenge,
+      currentStage: 'understand',
+      markedBug: null,
+      testReport: null,
+      outputAnswer: '',
+      outputCorrect: false,
+      revealedOutput: null,
+    };
+
+    try {
+      const response = await this.sendChatMessage([{ role: 'user', content: userPrompt }], ctx);
+
+      if (response.startsWith('⚠️ Live AI guidance is currently unavailable')) {
+        // Fallback local evaluation when API key is unconfigured
+        const hasDecentLength = wordCount >= 14;
+        return {
+          accepted: hasDecentLength,
+          feedback: hasDecentLength
+            ? 'Good conceptual overview! Your explanation demonstrates a clear understanding of the program workflow. You have unlocked Stage 2 (Run Tests).'
+            : 'Your explanation is a bit too brief. Please describe how data flows through the functions and what outcome you expect from this program.',
+        };
+      }
+
+      const isAccepted = response.includes('[VERDICT: ACCEPTED]') || (!response.includes('[VERDICT: REVISION_NEEDED]') && wordCount >= 15);
+      const cleanFeedback = response
+        .replace(/\[VERDICT:\s*(ACCEPTED|REVISION_NEEDED)\]/gi, '')
+        .trim();
+
+      return {
+        accepted: isAccepted,
+        feedback: cleanFeedback || (isAccepted ? 'Understanding accepted! You may now proceed to Run Tests.' : 'Please expand on how the code processes data.'),
+      };
+    } catch {
+      return {
+        accepted: wordCount >= 14,
+        feedback: 'Your explanation has been recorded. You can proceed to investigate the tests.',
+      };
+    }
+  }
+
+  /**
+   * Evaluates the user's marked bug and diagnosis reasoning in Step 3 (Find Bug).
+   */
+  static async evaluateBugDiagnosis(params: {
+    challenge: Challenge;
+    markedBug: BugAnswer | null;
+    bugExplanation: string;
+    testReport: TestReport | null;
+  }): Promise<EvaluationResult> {
+    const { challenge, markedBug, bugExplanation, testReport } = params;
+
+    if (!markedBug) {
+      return {
+        accepted: false,
+        feedback: 'Please click a line number in the code editor gutter to mark your suspected bug line.',
+      };
+    }
+
+    const cleanExp = bugExplanation.trim();
+    const wordCount = cleanExp ? cleanExp.split(/\s+/).length : 0;
+
+    const userPrompt = `I am at Stage 3 (Find Bug) for "${challenge.title}".
+I marked line ${markedBug.file}:${markedBug.line} in the code editor.
+My explanation of why this code is faulty:
+"""
+${cleanExp || '(No written explanation provided)'}
+"""
+
+Actual test failures observed:
+${testReport ? testReport.results.filter(r => r.status === 'failed').map(f => `- ${f.name}: ${f.message}`).join('\n') : 'Tests observed failing.'}
+
+Please evaluate my diagnosis:
+1. Is my marked line and explanation consistent with the root-cause bug causing the failure?
+2. If my diagnosis correctly identifies the faulty logic or the immediate function responsible, include "[VERDICT: ACCEPTED]" with validating feedback.
+3. If my diagnosis is incorrect or needs revision, include "[VERDICT: REVISION_NEEDED]" and give a contextual hint directing me toward the relevant function or invariant without giving away the exact solution line.`;
+
+    const ctx: GemmaMentorContext = {
+      challenge,
+      currentStage: 'find_bug',
+      markedBug,
+      testReport,
+      outputAnswer: '',
+      outputCorrect: false,
+      revealedOutput: null,
+    };
+
+    try {
+      const response = await this.sendChatMessage([{ role: 'user', content: userPrompt }], ctx);
+
+      if (response.startsWith('⚠️ Live AI guidance is currently unavailable')) {
+        // Fallback local evaluation
+        const sameFile = markedBug.file === challenge.bug.file;
+        const lineDistance = Math.abs(markedBug.line - challenge.bug.line);
+        const isNear = sameFile && lineDistance <= 3;
+
+        if (isNear) {
+          return {
+            accepted: true,
+            feedback: `Excellent diagnosis! You marked ${markedBug.file}:${markedBug.line}, which directly targets the faulty logic. Your reasoning aligns with the observed test failure.`,
+          };
+        } else if (sameFile) {
+          return {
+            accepted: false,
+            feedback: `You are in the correct file (${markedBug.file}), but line ${markedBug.line} may not be where the logic diverges. Inspect the conditions and mutations around the core operation.`,
+          };
+        } else {
+          return {
+            accepted: false,
+            feedback: `Line ${markedBug.file}:${markedBug.line} does not appear to be where the failure originates. Trace how data is handled in ${challenge.bug.file}.`,
+          };
+        }
+      }
+
+      const isAccepted = response.includes('[VERDICT: ACCEPTED]') || (!response.includes('[VERDICT: REVISION_NEEDED]') && wordCount >= 10);
+      const cleanFeedback = response
+        .replace(/\[VERDICT:\s*(ACCEPTED|REVISION_NEEDED)\]/gi, '')
+        .trim();
+
+      return {
+        accepted: isAccepted,
+        feedback: cleanFeedback,
+      };
+    } catch {
+      const sameFile = markedBug.file === challenge.bug.file;
+      return {
+        accepted: sameFile,
+        feedback: sameFile
+          ? 'Diagnosis recorded in suspected file.'
+          : 'Consider reviewing the service logic file.',
+      };
+    }
+  }
+
+  /**
+   * Evaluates both predicted output and output explanation in Step 4.
+   */
+  static async evaluateOutputAndExplanation(params: {
+    challenge: Challenge;
+    prediction: string;
+    outputExplanation: string;
+    actualStdout: string;
+    isCorrect: boolean;
+    markedBug: BugAnswer | null;
+    testReport: TestReport | null;
+  }): Promise<{ outputMatched: boolean; evaluation: string }> {
+    const { challenge, prediction, outputExplanation, actualStdout, isCorrect, markedBug, testReport } = params;
+
+    const userPrompt = `I am at Stage 4 (Predict & Explain Output) for "${challenge.title}".
+
+My predicted output:
+"""
+${prediction.trim() || '(Empty)'}
+"""
+
+My explanation of why this output occurs:
+"""
+${outputExplanation.trim() || '(No explanation provided)'}
+"""
+
+Actual program execution output:
+"""
+${actualStdout.trim() || '(No stdout produced)'}
+"""
+
+Authoritative match: ${isCorrect ? 'MATCHED' : 'DIVERGED'}
+
+Please evaluate:
+1. Acknowledge whether the predicted output matched actual live execution.
+2. Evaluate my explanation of the execution steps, loop/branch behavior, and state mutations. Distinguish whether my reasoning was sound even if the prediction diverged, or vice versa.
+3. Trace the step-by-step execution sequence explaining why the current code outputs this result.
+4. Explain how this output changes once the bug is fixed.`;
+
+    const ctx: GemmaMentorContext = {
+      challenge,
+      currentStage: 'predict_explain',
+      markedBug,
+      testReport,
+      outputAnswer: prediction,
+      outputCorrect: isCorrect,
+      revealedOutput: actualStdout,
+    };
+
+    const reply = await this.sendChatMessage([{ role: 'user', content: userPrompt }], ctx);
+    return {
+      outputMatched: isCorrect,
+      evaluation: reply,
+    };
+  }
+
+  /**
+   * Legacy wrapper for prediction evaluation.
    */
   static async evaluatePrediction(params: {
     challenge: Challenge;
@@ -271,42 +510,15 @@ Take a look at the **Explain** tab below—summarize in your own words why the c
     markedBug: BugAnswer | null;
     testReport: TestReport | null;
   }): Promise<string> {
-    const { challenge, prediction, actualStdout, isCorrect, markedBug, testReport } = params;
-
-    const userPrompt = `I submitted my predicted output for running \`${challenge.entryFile}\`:
-My prediction:
-"""
-${prediction.trim() || '(Empty prediction)'}
-"""
-
-Actual program execution output:
-"""
-${actualStdout.trim() || '(No stdout produced)'}
-"""
-
-Validation status: ${isCorrect ? 'Accurate (matches program output)' : 'Diverged (does not match actual output)'}
-
-Please evaluate my prediction:
-1. Explain why the program printed this result by tracing the key function calls and variable states in ${challenge.entryFile}.
-2. If my prediction was incorrect, explain where the divergence happened.
-3. Provide learning-oriented hints on what data invariant to investigate next, without revealing the exact root-cause bug line.`;
-
-    const ctx: GemmaMentorContext = {
-      challenge,
-      currentStage: 'predict',
-      markedBug,
-      testReport,
-      outputAnswer: prediction,
-      outputCorrect: isCorrect,
-      revealedOutput: actualStdout,
-    };
-
-    return this.sendChatMessage([{ role: 'user', content: userPrompt }], ctx);
+    const res = await this.evaluateOutputAndExplanation({
+      ...params,
+      outputExplanation: '',
+    });
+    return res.evaluation;
   }
 
   /**
    * Provides contextual guidance or a full execution explanation from Gemma 4.
-   * Respects prediction-first flow: does not reveal spoilers if prediction hasn't been submitted.
    */
   static async explainExecution(params: {
     challenge: Challenge;

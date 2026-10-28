@@ -1,5 +1,6 @@
-import { ArrowLeft, Clock, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Clock, Lightbulb, Lock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import type { WorkflowStageId, StageStatus } from '../../types/round';
 
 export type WorkspaceStep =
   | 'understand'
@@ -17,6 +18,9 @@ export interface WorkspaceTopBarProps {
   difficulty: 'Easy' | 'Medium' | 'Hard';
   activeStep?: WorkspaceStep;
   onStepChange?: (step: WorkspaceStep) => void;
+  activeStage?: WorkflowStageId;
+  stageStatuses?: Record<WorkflowStageId, StageStatus>;
+  onStageChange?: (stage: WorkflowStageId) => void;
   runtimeStatus: 'loading' | 'ready' | 'offline';
   formattedTime: string;
   hintsRevealedCount: number;
@@ -30,6 +34,14 @@ export function WorkspaceTopBar({
   category,
   roundTitle,
   difficulty,
+  activeStage = 'understand',
+  stageStatuses = {
+    understand: 'in_progress',
+    test: 'locked',
+    find_bug: 'locked',
+    predict_explain: 'locked',
+  },
+  onStageChange,
   runtimeStatus,
   formattedTime,
   hintsRevealedCount,
@@ -38,6 +50,13 @@ export function WorkspaceTopBar({
   onSubmit,
   locked,
 }: WorkspaceTopBarProps) {
+  const stages: { id: WorkflowStageId; num: string; label: string }[] = [
+    { id: 'understand', num: '01', label: 'Understand' },
+    { id: 'test', num: '02', label: 'Run Tests' },
+    { id: 'find_bug', num: '03', label: 'Find Bug' },
+    { id: 'predict_explain', num: '04', label: 'Predict & Explain' },
+  ];
+
   return (
     <header className="ws-topbar">
       {/* Left: Back + Breadcrumb + Difficulty Pill */}
@@ -55,6 +74,35 @@ export function WorkspaceTopBar({
         <span className={`ws-diff-pill ${difficulty.toLowerCase()}`}>
           {difficulty}
         </span>
+      </div>
+
+      {/* Center: Compact Stage Navigator */}
+      <div className="ws-topbar-stages">
+        {stages.map((st, idx) => {
+          const status = stageStatuses[st.id] || 'locked';
+          const isActive = activeStage === st.id;
+          const isLocked = status === 'locked';
+
+          return (
+            <div key={st.id} className="ws-topbar-stage-wrap">
+              <button
+                className={`ws-topbar-stage-pill ${status} ${isActive ? 'active' : ''}`}
+                disabled={isLocked}
+                onClick={() => onStageChange?.(st.id)}
+                title={`${st.num} ${st.label} (${status.replace('_', ' ')})`}
+              >
+                <span className="ws-stage-num">{st.num}</span>
+                <span className="ws-stage-name">{st.label}</span>
+                <span className="ws-stage-status">
+                  {status === 'locked' && <Lock size={10} />}
+                  {status === 'completed' && <CheckCircle2 size={11} className="text-green-bright" />}
+                  {status === 'needs_revision' && <AlertTriangle size={11} className="text-amber-bright" />}
+                </span>
+              </button>
+              {idx < stages.length - 1 && <span className="ws-stage-sep">→</span>}
+            </div>
+          );
+        })}
       </div>
 
       {/* Right: Runtime chip + Timer + Hints + Submit button */}

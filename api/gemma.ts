@@ -119,6 +119,38 @@ Constraints: ${challenge.structuredDescription.constraints.join('; ')}
 Success Criteria: ${challenge.structuredDescription.successCriteria}`
     : challenge.description;
 
+  let stageGuidance = '';
+  if (currentStage === 'understand') {
+    stageGuidance = `
+STAGE 1 - UNDERSTAND THE CODE:
+The user is explaining how the program works and what behavior is expected before debugging.
+Evaluate their conceptual understanding. Do not require exact reference wording.
+If their explanation demonstrates reasonable conceptual grasp, include "[VERDICT: ACCEPTED]" in your reply followed by constructive feedback and encouragement.
+If the explanation is too brief, missing core concepts, or confused, include "[VERDICT: REVISION_NEEDED]" followed by friendly questions prompting clarification on missing concepts without revealing the bug.`;
+  } else if (currentStage === 'test') {
+    stageGuidance = `
+STAGE 2 - RUN TEST CASES:
+The user has executed the unit tests.
+Interpret what the genuine test results prove.
+Distinguish between test execution errors and assertion failures.
+Failing tests are expected in buggy challenges; suggest what function or invariant the user should investigate next without spoiling the solution.`;
+  } else if (currentStage === 'find_bug') {
+    stageGuidance = `
+STAGE 3 - FIND AND MARK THE BUG:
+The user has marked a suspected bug line in the editor and submitted their reasoning.
+Evaluate whether their marked line and reasoning correctly diagnose the root cause of the test failure.
+If the diagnosis accurately identifies the faulty logic or relevant function, include "[VERDICT: ACCEPTED]" in your reply with affirming feedback.
+If the diagnosis is incorrect or needs revision, include "[VERDICT: REVISION_NEEDED]" with a contextual hint directing them to the relevant function or condition without revealing the exact solution line.`;
+  } else if (currentStage === 'predict_explain') {
+    stageGuidance = `
+STAGE 4 - PREDICT AND EXPLAIN OUTPUT:
+The user has submitted a predicted output and an explanation of the execution steps.
+Evaluate both parts:
+1. Whether their predicted output matches the actual live execution output.
+2. The soundness of their explanation regarding control flow, loop behavior, and data transformations.
+Explain the step-by-step trace of why this output occurs in the current code, and how the output changes once the bug is fixed.`;
+  }
+
   return `${GEMMA_SYSTEM_PROMPT}
 
 CURRENT CHALLENGE CONTEXT:
@@ -134,6 +166,7 @@ Bug Marking Status: ${bugStatus}
 
 Actual Test Execution Evidence:
 ${testEvidence}
+${stageGuidance}
 
 Available Codebase:
 ${filesSummary}`;

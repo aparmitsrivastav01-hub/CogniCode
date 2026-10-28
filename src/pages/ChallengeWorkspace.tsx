@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type OnMount } from '@monaco-editor/react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { BugAnswer, Interaction, RoundSession, TestReport } from '../types/round';
+import type {
+  BugAnswer,
+  Interaction,
+  RoundSession,
+  TestReport,
+  WorkflowStageId,
+  StageStatus,
+} from '../types/round';
 import { getChallengeBySlug, challenges } from '../data/challenges';
 import { pyRunner } from '../lib/pyRunner';
 import { GemmaService } from '../lib/gemma';
 import { WorkspaceTopBar, type WorkspaceStep } from '../components/workspace/WorkspaceTopBar';
 import { WorkspaceLeftPanel } from '../components/workspace/WorkspaceLeftPanel';
 import { WorkspaceEditor } from '../components/workspace/WorkspaceEditor';
-import { WorkspaceBottomPanel, type WorkspaceBottomTab } from '../components/workspace/WorkspaceBottomPanel';
+import { WorkspaceBottomPanel } from '../components/workspace/WorkspaceBottomPanel';
 import { WorkspaceAssistant } from '../components/workspace/WorkspaceAssistant';
 import { WorkspaceStatusBar } from '../components/workspace/WorkspaceStatusBar';
 
@@ -28,38 +35,38 @@ export default function ChallengeWorkspace() {
   const [activePath, setActivePath] = useState(round.entryFile);
   const [openPaths, setOpenPaths] = useState<string[]>([round.entryFile]);
 
-  // Synchronize workspace state when round/slug changes
-  useEffect(() => {
-    finishedRef.current = false;
-    setActivePath(round.entryFile);
-    setOpenPaths([round.entryFile]);
-    setMarkedLines({});
-    setFinalMark(null);
-    setOutputAnswer('');
-    setOutputAttempts(0);
-    setOutputCorrect(false);
-    setRevealedOutput(null);
-    setOutputFeedback('');
-    setGemmaPredictionFeedback('');
-    setGemmaTestExplanation('');
-    setGemmaExplanation('');
-    setExplanation('');
-    setTestReport(null);
-    setSeconds((round.estimatedMinutes || 10) * 60);
-    setHintReveals([]);
-    setInteractions([]);
-  }, [round.id]);
-  const [leftTab, setLeftTab] = useState<'problem' | 'explorer'>('problem');
-  const [activeBottomTab, setActiveBottomTab] = useState<WorkspaceBottomTab>('Predict Output');
-  const [activeStep, setActiveStep] = useState<WorkspaceStep>('predict');
+  // Stage Navigation & Statuses
+  const [activeStage, setActiveStage] = useState<WorkflowStageId>('understand');
+  const [stageStatuses, setStageStatuses] = useState<Record<WorkflowStageId, StageStatus>>({
+    understand: 'in_progress',
+    test: 'locked',
+    find_bug: 'locked',
+    predict_explain: 'locked',
+  });
 
-  // Editor state & cursor
-  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  // Stage 1: Understand
+  const [understandingText, setUnderstandingText] = useState('');
+  const [understandingFeedback, setUnderstandingFeedback] = useState('');
+  const [understandingAccepted, setUnderstandingAccepted] = useState(false);
+  const [understandingLoading, setUnderstandingLoading] = useState(false);
+
+  // Stage 2: Tests
+  const [testReport, setTestReport] = useState<TestReport | null>(null);
+  const [testRunning, setTestRunning] = useState(false);
+  const [gemmaTestExplanation, setGemmaTestExplanation] = useState('');
+  const [gemmaTestLoading, setGemmaTestLoading] = useState(false);
+
+  // Stage 3: Find Bug
   const [markedLines, setMarkedLines] = useState<Record<string, number>>({});
   const [finalMark, setFinalMark] = useState<BugAnswer | null>(null);
+  const [bugExplanation, setBugExplanation] = useState('');
+  const [bugFeedback, setBugFeedback] = useState('');
+  const [bugAccepted, setBugAccepted] = useState(false);
+  const [bugLoading, setBugLoading] = useState(false);
 
-  // Prediction Output State
+  // Stage 4: Predict & Explain Output
   const [outputAnswer, setOutputAnswer] = useState('');
+  const [outputExplanation, setOutputExplanation] = useState('');
   const [outputAttempts, setOutputAttempts] = useState(0);
   const [outputCorrect, setOutputCorrect] = useState(false);
   const [revealedOutput, setRevealedOutput] = useState<string | null>(null);
@@ -68,18 +75,10 @@ export default function ChallengeWorkspace() {
   const [gemmaPredictionFeedback, setGemmaPredictionFeedback] = useState('');
   const [gemmaPredictionLoading, setGemmaPredictionLoading] = useState(false);
 
-  // Explanation State
-  const [explanation, setExplanation] = useState('');
-  const [gemmaExplanation, setGemmaExplanation] = useState('');
-  const [gemmaExplanationLoading, setGemmaExplanationLoading] = useState(false);
-
-  // Tests State
-  const [testReport, setTestReport] = useState<TestReport | null>(null);
-  const [testRunning, setTestRunning] = useState(false);
-  const [gemmaTestExplanation, setGemmaTestExplanation] = useState('');
-  const [gemmaTestLoading, setGemmaTestLoading] = useState(false);
-
-  // Timer & Hints
+  // General workspace state
+  const [leftTab, setLeftTab] = useState<'problem' | 'explorer'>('problem');
+  const [activeStep, setActiveStep] = useState<WorkspaceStep>('understand');
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [seconds, setSeconds] = useState(10 * 60);
   const [hintReveals, setHintReveals] = useState<number[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
@@ -91,6 +90,40 @@ export default function ChallengeWorkspace() {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const decorationRef = useRef<string[]>([]);
   const finishedRef = useRef(false);
+
+  // Synchronize workspace state when round/slug changes
+  useEffect(() => {
+    finishedRef.current = false;
+    setActivePath(round.entryFile);
+    setOpenPaths([round.entryFile]);
+    setActiveStage('understand');
+    setStageStatuses({
+      understand: 'in_progress',
+      test: 'locked',
+      find_bug: 'locked',
+      predict_explain: 'locked',
+    });
+    setUnderstandingText('');
+    setUnderstandingFeedback('');
+    setUnderstandingAccepted(false);
+    setTestReport(null);
+    setGemmaTestExplanation('');
+    setMarkedLines({});
+    setFinalMark(null);
+    setBugExplanation('');
+    setBugFeedback('');
+    setBugAccepted(false);
+    setOutputAnswer('');
+    setOutputExplanation('');
+    setOutputAttempts(0);
+    setOutputCorrect(false);
+    setRevealedOutput(null);
+    setOutputFeedback('');
+    setGemmaPredictionFeedback('');
+    setSeconds((round.estimatedMinutes || 10) * 60);
+    setHintReveals([]);
+    setInteractions([]);
+  }, [round.id]);
 
   const activeFile = useMemo(
     () => round.files.find(file => file.path === activePath) ?? round.files[0],
@@ -134,7 +167,16 @@ export default function ChallengeWorkspace() {
       hintsRevealed: hintReveals,
       submitted: true,
       timedOut: seconds <= 0,
-      explanation,
+      explanation: outputExplanation || understandingText,
+      understandingExplanation: understandingText,
+      bugExplanation,
+      outputExplanation,
+      stagesCompleted: {
+        understand: stageStatuses.understand === 'completed',
+        test: stageStatuses.test === 'completed',
+        find_bug: stageStatuses.find_bug === 'completed',
+        predict_explain: stageStatuses.predict_explain === 'completed',
+      },
     };
     navigate('/results', { state: { ...session, roundId: round.id } });
   };
@@ -161,6 +203,12 @@ export default function ChallengeWorkspace() {
     setMarkedLines(lines => ({ ...lines, [activePath]: line }));
     setFinalMark({ file: activePath, line });
 
+    // Invalidate prior bug diagnosis if mark changed
+    if (stageStatuses.find_bug === 'completed') {
+      setStageStatuses(prev => ({ ...prev, find_bug: 'in_progress' }));
+      setBugAccepted(false);
+    }
+
     const editor = editorRef.current;
     if (editor) {
       decorationRef.current = editor.deltaDecorations(decorationRef.current, [
@@ -183,6 +231,10 @@ export default function ChallengeWorkspace() {
       return copy;
     });
     setFinalMark(null);
+    setBugAccepted(false);
+    if (stageStatuses.find_bug === 'completed') {
+      setStageStatuses(prev => ({ ...prev, find_bug: 'in_progress' }));
+    }
     if (editorRef.current) {
       decorationRef.current = editorRef.current.deltaDecorations(decorationRef.current, []);
     }
@@ -191,7 +243,6 @@ export default function ChallengeWorkspace() {
   const onEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
 
-    // Custom theme matching the tokens from the visual design
     monaco.editor.defineTheme('cognicode-studio', {
       base: 'vs-dark',
       inherit: true,
@@ -255,6 +306,124 @@ export default function ChallengeWorkspace() {
     setHintReveals(items => [...items, items.length]);
   };
 
+  // Stage 1 Action: Evaluate Conceptual Understanding
+  const handleEvaluateUnderstanding = async () => {
+    if (understandingLoading || !understandingText.trim()) return;
+    setUnderstandingLoading(true);
+    setUnderstandingFeedback('');
+
+    try {
+      const result = await GemmaService.evaluateUnderstanding({
+        challenge: round,
+        explanation: understandingText,
+      });
+
+      setUnderstandingFeedback(result.feedback);
+      setUnderstandingAccepted(result.accepted);
+
+      setStageStatuses(prev => ({
+        ...prev,
+        understand: result.accepted ? 'completed' : 'needs_revision',
+        test: result.accepted && prev.test === 'locked' ? 'in_progress' : prev.test,
+      }));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setUnderstandingFeedback(`⚠️ Evaluation error: ${errMsg}`);
+    } finally {
+      setUnderstandingLoading(false);
+    }
+  };
+
+  const handleUnderstandingTextChange = (text: string) => {
+    setUnderstandingText(text);
+    if (stageStatuses.understand === 'completed') {
+      setStageStatuses(prev => ({ ...prev, understand: 'in_progress' }));
+    }
+  };
+
+  // Stage 2 Action: Run Test Suite
+  const runTests = async () => {
+    if (locked || runtimeState !== 'ready' || testRunning) return;
+    setTestRunning(true);
+    setTestReport(null);
+
+    try {
+      const result = await pyRunner.runTests(pythonFiles);
+      setTestReport(result);
+      setStageStatuses(prev => ({
+        ...prev,
+        test: 'completed',
+        find_bug: prev.find_bug === 'locked' ? 'in_progress' : prev.find_bug,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestReport({ results: [], stdout: '', stderr: '', error: message });
+      setStageStatuses(prev => ({
+        ...prev,
+        test: 'completed',
+        find_bug: prev.find_bug === 'locked' ? 'in_progress' : prev.find_bug,
+      }));
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
+  const handleAskGemmaTestHelp = async () => {
+    if (!testReport || gemmaTestLoading) return;
+    setGemmaTestLoading(true);
+    try {
+      const explanation = await GemmaService.interpretTests({
+        challenge: round,
+        testReport,
+        markedBug,
+      });
+      setGemmaTestExplanation(explanation);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setGemmaTestExplanation(`⚠️ Test interpretation unavailable: ${errMsg}`);
+    } finally {
+      setGemmaTestLoading(false);
+    }
+  };
+
+  // Stage 3 Action: Evaluate Bug Diagnosis
+  const handleEvaluateBugDiagnosis = async () => {
+    if (bugLoading || !markedBug) return;
+    setBugLoading(true);
+    setBugFeedback('');
+
+    try {
+      const result = await GemmaService.evaluateBugDiagnosis({
+        challenge: round,
+        markedBug,
+        bugExplanation,
+        testReport,
+      });
+
+      setBugFeedback(result.feedback);
+      setBugAccepted(result.accepted);
+
+      setStageStatuses(prev => ({
+        ...prev,
+        find_bug: result.accepted ? 'completed' : 'needs_revision',
+        predict_explain: prev.predict_explain === 'locked' ? 'in_progress' : prev.predict_explain,
+      }));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setBugFeedback(`⚠️ Diagnosis evaluation error: ${errMsg}`);
+    } finally {
+      setBugLoading(false);
+    }
+  };
+
+  const handleBugExplanationChange = (text: string) => {
+    setBugExplanation(text);
+    if (stageStatuses.find_bug === 'completed') {
+      setStageStatuses(prev => ({ ...prev, find_bug: 'in_progress' }));
+    }
+  };
+
+  // Stage 4 Action: Predict and Explain Output
   const checkOutput = async () => {
     if (locked || runtimeState !== 'ready' || checkingOutput) return;
     setCheckingOutput(true);
@@ -288,61 +457,28 @@ export default function ChallengeWorkspace() {
       setCheckingOutput(false);
     }
 
-    // Call Gemma 4 to evaluate the prediction with full execution context
+    // Call Gemma 4 to evaluate both prediction and output explanation
     try {
-      const evaluation = await GemmaService.evaluatePrediction({
+      const evaluationResult = await GemmaService.evaluateOutputAndExplanation({
         challenge: round,
         prediction: outputAnswer,
+        outputExplanation,
         actualStdout,
         isCorrect,
         markedBug,
         testReport,
       });
-      setGemmaPredictionFeedback(evaluation);
+
+      setGemmaPredictionFeedback(evaluationResult.evaluation);
+      setStageStatuses(prev => ({
+        ...prev,
+        predict_explain: 'completed',
+      }));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       setGemmaPredictionFeedback(`⚠️ Gemma evaluation unavailable: ${errMsg}`);
     } finally {
       setGemmaPredictionLoading(false);
-    }
-  };
-
-  const handleAskGemmaTestHelp = async () => {
-    if (!testReport || gemmaTestLoading) return;
-    setGemmaTestLoading(true);
-    try {
-      const explanation = await GemmaService.interpretTests({
-        challenge: round,
-        testReport,
-        markedBug,
-      });
-      setGemmaTestExplanation(explanation);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setGemmaTestExplanation(`⚠️ Test interpretation unavailable: ${errMsg}`);
-    } finally {
-      setGemmaTestLoading(false);
-    }
-  };
-
-  const handleRequestGemmaExplanation = async (full: boolean) => {
-    if (gemmaExplanationLoading) return;
-    setGemmaExplanationLoading(true);
-    try {
-      const text = await GemmaService.explainExecution({
-        challenge: round,
-        predictionAttempted: full,
-        outputCorrect,
-        markedBug,
-        testReport,
-        revealedOutput,
-      });
-      setGemmaExplanation(text);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setGemmaExplanation(`⚠️ Explanation unavailable: ${errMsg}`);
-    } finally {
-      setGemmaExplanationLoading(false);
     }
   };
 
@@ -362,39 +498,16 @@ export default function ChallengeWorkspace() {
     }
   };
 
-  const runTests = async () => {
-    if (locked || runtimeState !== 'ready' || testRunning) return;
-    setTestRunning(true);
-    setTestReport(null);
-    try {
-      const result = await pyRunner.runTests(pythonFiles);
-      setTestReport(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setTestReport({ results: [], stdout: '', stderr: '', error: message });
-    } finally {
-      setTestRunning(false);
-    }
-  };
-
-  const handleStepChange = (step: WorkspaceStep) => {
-    setActiveStep(step);
-    if (step === 'understand') {
-      setLeftTab('problem');
-    } else if (step === 'plan') {
-      setLeftTab('problem');
-    } else if (step === 'test') {
-      setActiveBottomTab('Test Results');
-    } else if (step === 'investigate') {
-      setActiveBottomTab('Find Bug');
-    } else if (step === 'verify') {
-      setActiveBottomTab('Test Results');
-    } else if (step === 'explain') {
-      setActiveBottomTab('Explain');
-    } else if (step === 'predict') {
-      setActiveBottomTab('Predict Output');
-    } else if (step === 'debug') {
-      setActiveBottomTab('Find Bug');
+  const handleStageChange = (stage: WorkflowStageId) => {
+    setActiveStage(stage);
+    if (stage === 'understand') {
+      setActiveStep('understand');
+    } else if (stage === 'test') {
+      setActiveStep('test');
+    } else if (stage === 'find_bug') {
+      setActiveStep('investigate');
+    } else if (stage === 'predict_explain') {
+      setActiveStep('predict');
     }
   };
 
@@ -410,7 +523,10 @@ export default function ChallengeWorkspace() {
         roundTitle={round.title}
         difficulty={round.difficulty}
         activeStep={activeStep}
-        onStepChange={handleStepChange}
+        onStepChange={setActiveStep}
+        activeStage={activeStage}
+        stageStatuses={stageStatuses}
+        onStageChange={handleStageChange}
         runtimeStatus={runtimeState}
         formattedTime={formattedTime}
         hintsRevealedCount={hintReveals.length}
@@ -453,11 +569,34 @@ export default function ChallengeWorkspace() {
 
           <WorkspaceBottomPanel
             challenge={round}
-            activeTab={activeBottomTab}
-            onTabChange={setActiveBottomTab}
+            activeStage={activeStage}
+            onStageChange={handleStageChange}
+            stageStatuses={stageStatuses}
+            understandingText={understandingText}
+            onUnderstandingTextChange={handleUnderstandingTextChange}
+            onEvaluateUnderstanding={handleEvaluateUnderstanding}
+            understandingLoading={understandingLoading}
+            understandingFeedback={understandingFeedback}
+            understandingAccepted={understandingAccepted}
+            onRunTests={runTests}
+            testRunning={testRunning}
+            testReport={testReport}
+            gemmaTestExplanation={gemmaTestExplanation}
+            gemmaTestLoading={gemmaTestLoading}
+            onAskGemmaTestHelp={handleAskGemmaTestHelp}
+            markedBug={markedBug}
+            onClearMark={clearMark}
+            bugExplanation={bugExplanation}
+            onBugExplanationChange={handleBugExplanationChange}
+            onEvaluateBugDiagnosis={handleEvaluateBugDiagnosis}
+            bugLoading={bugLoading}
+            bugFeedback={bugFeedback}
+            bugAccepted={bugAccepted}
             entryFile={round.entryFile}
             outputAnswer={outputAnswer}
             onOutputAnswerChange={setOutputAnswer}
+            outputExplanation={outputExplanation}
+            onOutputExplanationChange={setOutputExplanation}
             onCheckOutput={checkOutput}
             checkingOutput={checkingOutput}
             revealedOutput={revealedOutput}
@@ -470,20 +609,7 @@ export default function ChallengeWorkspace() {
             runtimeState={runtimeState}
             runtimeError={runtimeError}
             locked={locked}
-            markedBug={markedBug}
-            onClearMark={clearMark}
             onSubmit={finish}
-            onRunTests={runTests}
-            testRunning={testRunning}
-            testReport={testReport}
-            gemmaTestExplanation={gemmaTestExplanation}
-            gemmaTestLoading={gemmaTestLoading}
-            onAskGemmaTestHelp={handleAskGemmaTestHelp}
-            explanation={explanation}
-            onExplanationChange={setExplanation}
-            gemmaExplanation={gemmaExplanation}
-            gemmaExplanationLoading={gemmaExplanationLoading}
-            onRequestGemmaExplanation={handleRequestGemmaExplanation}
           />
         </div>
 
@@ -492,7 +618,7 @@ export default function ChallengeWorkspace() {
           roundTitle={round.title}
           entryFile={round.entryFile}
           challenge={round}
-          currentStage={activeStep}
+          currentStage={activeStage}
           markedBug={markedBug}
           testReport={testReport}
           outputAnswer={outputAnswer}

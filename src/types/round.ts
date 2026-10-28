@@ -63,6 +63,25 @@ export interface RoundSession {
   submitted: boolean;
   timedOut: boolean;
   explanation: string;
+  understandingExplanation?: string;
+  bugExplanation?: string;
+  outputExplanation?: string;
+  stagesCompleted?: {
+    understand: boolean;
+    test: boolean;
+    find_bug: boolean;
+    predict_explain: boolean;
+  };
+}
+
+export type WorkflowStageId = 'understand' | 'test' | 'find_bug' | 'predict_explain';
+export type StageStatus = 'locked' | 'in_progress' | 'completed' | 'needs_revision';
+
+export interface WorkflowStageState {
+  id: WorkflowStageId;
+  label: string;
+  stepNumber: string;
+  status: StageStatus;
 }
 
 export interface AssistantHint {

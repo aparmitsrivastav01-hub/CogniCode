@@ -4384,3 +4384,299 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   gap: 8px;
   margin-bottom: 10px;
 }
+
+/* ==============================================================================
+   Debugging Workflow 4-Stage Redesign
+   01 Understand -> 02 Run Tests -> 03 Find Bug -> 04 Predict & Explain
+   ============================================================================== */
+
+/* Topbar Compact Stage Stepper */
+.ws-topbar-stages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ws-topbar-stage-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ws-topbar-stage-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ws-topbar-stage-pill:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ws-topbar-stage-pill.active {
+  color: #ffffff;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(129, 140, 248, 0.4);
+}
+
+.ws-topbar-stage-pill.locked {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.ws-topbar-stage-pill.completed {
+  color: #86efac;
+}
+
+.ws-topbar-stage-pill.needs_revision {
+  color: #fde047;
+}
+
+.ws-topbar-stage-pill .ws-stage-num {
+  font-family: var(--ws-font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #818cf8;
+}
+
+.ws-topbar-stage-pill .ws-stage-name {
+  font-size: 11px;
+}
+
+.ws-topbar-stage-pill .ws-stage-status {
+  display: flex;
+  align-items: center;
+}
+
+.ws-stage-sep {
+  font-size: 9px;
+  color: #475569;
+}
+
+/* Bottom Panel 4-Stage Navigator */
+.ws-stage-navigator {
+  display: flex;
+  background: #08080c;
+  border-bottom: 1px solid var(--ws-border);
+  overflow-x: auto;
+}
+
+.ws-stage-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ws-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.ws-stage-tab:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ws-stage-tab.active {
+  color: #ffffff;
+  border-bottom-color: var(--purple-bright);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.ws-stage-tab.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ws-stage-tab.completed {
+  color: #cbd5e1;
+}
+
+.ws-stage-tab.needs_revision {
+  color: #fde047;
+}
+
+.ws-stage-step-num {
+  font-family: var(--ws-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #818cf8;
+  background: rgba(129, 140, 248, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.ws-stage-icon {
+  display: flex;
+  align-items: center;
+}
+
+.ws-stage-status-badge {
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+}
+
+.ws-badge-icon.completed {
+  color: #4ade80;
+}
+
+.ws-badge-icon.revision {
+  color: #facc15;
+}
+
+.ws-badge-icon.locked {
+  color: #64748b;
+}
+
+.ws-stage-dot.active {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--purple-bright);
+  box-shadow: 0 0 6px var(--purple-bright);
+}
+
+/* Stage Content Body */
+.ws-stage-content {
+  padding: 14px 16px;
+}
+
+.ws-stage-title-sm {
+  font-size: 10.5px;
+  font-family: var(--ws-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: #818cf8;
+  margin-bottom: 3px;
+}
+
+.ws-stage-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ws-btn-proceed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #15803d;
+  border: 1px solid #16a34a;
+  transition: all 0.15s ease;
+}
+
+.ws-btn-proceed:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+}
+
+.ws-btn-finish {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: 1px solid #818cf8;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.35);
+  transition: all 0.15s ease;
+}
+
+.ws-btn-finish:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.ws-verdict-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.ws-verdict-badge.accepted {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.ws-verdict-badge.revision {
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.15);
+  border: 1px solid rgba(250, 204, 21, 0.3);
+}
+
+.ws-gemma-eval-box.verdict-accepted {
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(6, 78, 59, 0.15);
+}
+
+.ws-gemma-eval-box.verdict-revision {
+  border-color: rgba(250, 204, 21, 0.3);
+  background: rgba(113, 63, 18, 0.15);
+}
+
+.ws-two-part-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ws-part-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ws-part-label {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.ws-affected-evidence {
+  font-size: 11.5px;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-top: 6px;
+}
+
+.ws-affected-evidence code {
+  color: #fca5a5;
+  font-family: var(--ws-font-mono);
+}
+
