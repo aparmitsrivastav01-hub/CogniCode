@@ -184,7 +184,24 @@ export const meetingRoomBookingChallenge: Challenge = {
   story:
     'Our office room management system allows employees to reserve conference rooms and search for available time slots. Team members reported that back-to-back bookings, like 10:00 to 11:00 followed by 11:00 to 12:00, are incorrectly rejected as conflicts. Because of this, the room finder reports that no rooms are available when a room has an adjacent reservation. The conflict detection logic is treating adjacent boundaries as overlapping intervals.',
   description:
-    'Our office room management system allows employees to reserve conference rooms and search for available time slots. Team members reported that back-to-back bookings, like 10:00 to 11:00 followed by 11:00 to 12:00, are incorrectly rejected as conflicts. Because of this, the room finder reports that no rooms are available when a room has an adjacent reservation. The conflict detection logic is treating adjacent boundaries as overlapping intervals.',
+    'Back-to-back room reservations are being incorrectly rejected as conflicts, preventing employees from booking rooms and causing available slots to be hidden. Inspect the interval overlap comparison in app/overlap.py to discover why adjacent time bounds are treated as overlapping.',
+  structuredDescription: {
+    problem:
+      'Attempting to book a meeting room immediately following an existing meeting (e.g., 10:00 to 11:00 after 09:00 to 10:00) fails with a BookingConflictError.',
+    context:
+      'The CalendarService schedules meetings across hourly TimeSlots and uses intervals_overlap to ensure rooms are never double-booked.',
+    task:
+      'Examine the inequality conditions in app/overlap.py to understand why equal start and end boundary hours are flagged as overlapping.',
+    expectedBehavior:
+      'Consecutive meetings where one ends exactly when the other begins must be allowed without triggering a conflict.',
+    constraints: [
+      'TimeSlots represent half-open intervals [start, end).',
+      'True overlaps (e.g. 09:00-11:00 vs 10:00-12:00) must strictly be rejected.',
+      'The room finder must correctly identify rooms with contiguous non-overlapping bookings as available.',
+    ],
+    successCriteria:
+      'Tests in tests/test_calendar.py pass, and Step 2 of app/main.py successfully outputs Confirmed: BK-002 | Design Review (10:00-11:00).',
+  },
   expectedInvariants: [
     'Must allow back-to-back meetings where one meeting starts exactly when another ends.',
     'Must reject any booking that overlaps with an existing reservation during the same interval.',
@@ -208,29 +225,7 @@ export const meetingRoomBookingChallenge: Challenge = {
     text: 'Check the RoomFinder loop in app/search.py line 15; the has_conflict flag might not be reset between rooms.',
     pointsTo: 'app/search.py',
   },
-  assistantHints: [
-    {
-      id: 'calendar-hint-1',
-      text: 'The search logic in app/search.py has an inner loop that might be leaking boolean state across rooms.',
-      pointsTo: 'app/search.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'calendar-hint-2',
-      text: 'Examine the relational operators in app/overlap.py: check what happens when slot_a.end_hour equals slot_b.start_hour.',
-      pointsTo: 'app/overlap.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'calendar-hint-3',
-      text: 'Check the TimeSlot dataclass post-init validation in app/models.py to ensure start hour ordering is enforced.',
-      pointsTo: 'app/models.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Observe why the 10:00-11:00 meeting was rejected right after the 09:00-10:00 meeting was booked.',
     'Consider standard interval math: two intervals [A, B) and [B, C) share boundary point B but do not overlap.',

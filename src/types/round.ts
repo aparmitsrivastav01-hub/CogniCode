@@ -78,6 +78,17 @@ export interface ExpectedOutput {
   fixed: string;
 }
 
+export interface ChallengeDescription {
+  problem: string;
+  context: string;
+  task: string;
+  expectedBehavior: string;
+  constraints: string[];
+  successCriteria: string;
+}
+
+export type VerificationStatus = 'not_verified' | 'passed' | 'failed' | 'incomplete';
+
 export interface Challenge extends Round {
   slug: string;
   summary: string;
@@ -93,4 +104,5 @@ export interface Challenge extends Round {
   };
   expectedOutput: ExpectedOutput;
   modelExplanation: string;
+  structuredDescription?: ChallengeDescription;
 }

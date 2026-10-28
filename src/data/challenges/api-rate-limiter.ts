@@ -194,7 +194,24 @@ export const apiRateLimiterChallenge: Challenge = {
   story:
     'Our API rate limiter uses a token bucket to allow bursts while enforcing a steady request rate. A mobile client team reported that users making slow, spaced-out requests are suddenly blocked with HTTP 429 Too Many Requests. The middleware logs show that user buckets are not refilling at the expected rate between requests. Tracing the request lifecycle across the clock, bucket, and middleware will reveal why tokens are lost.',
   description:
-    'Our API rate limiter uses a token bucket to allow bursts while enforcing a steady request rate. A mobile client team reported that users making slow, spaced-out requests are suddenly blocked with HTTP 429 Too Many Requests. The middleware logs show that user buckets are not refilling at the expected rate between requests. Tracing the request lifecycle across the clock, bucket, and middleware will reveal why tokens are lost.',
+    'Users sending slow, spaced-out requests are receiving unexpected HTTP 429 Too Many Requests errors. Trace how elapsed time is converted into tokens during bucket refill across app/bucket.py, app/limiter.py, and app/middleware.py to find why user allowances fail to recover.',
+  structuredDescription: {
+    problem:
+      'API clients making legitimate, spaced-out requests are prematurely blocked with HTTP 429 Too Many Requests even though ample time has passed to replenish their allowance.',
+    context:
+      'A TokenBucket rate limiter maintains a pool of tokens per user, refilling them based on elapsed time calculated by an injectable monotonic clock.',
+    task:
+      'Examine the refill calculation in app/bucket.py and determine why small time intervals fail to replenish tokens as expected.',
+    expectedBehavior:
+      'Buckets must accumulate tokens continuously over time so that requests arriving at reasonable intervals stay below the limit and succeed.',
+    constraints: [
+      'Refills must accurately account for fractional time intervals (less than 1 full second).',
+      'Bucket tokens must not exceed the specified maximum capacity.',
+      'Requests costing 1 token must be allowed whenever at least 1 token is available.',
+    ],
+    successCriteria:
+      'Unit tests in tests/test_limiter.py pass, and the live simulation demonstrates successful requests at +1.0s and +2.0s instead of repeated 429 rejections.',
+  },
   expectedInvariants: [
     'Must allow requests when tokens are available in the user bucket.',
     'Must refill tokens continuously based on elapsed time between requests.',
@@ -218,29 +235,7 @@ export const apiRateLimiterChallenge: Challenge = {
     text: 'Check the default capacity handling in app/limiter.py line 19; new buckets might be initialized with zero tokens.',
     pointsTo: 'app/limiter.py',
   },
-  assistantHints: [
-    {
-      id: 'limiter-hint-1',
-      text: 'The RateLimiterService in app/limiter.py has a suspicious TODO comment around idle bucket cleanup.',
-      pointsTo: 'app/limiter.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'limiter-hint-2',
-      text: 'Look at how tokens_to_add is computed during refill in app/bucket.py when elapsed is less than one full second.',
-      pointsTo: 'app/bucket.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'limiter-hint-3',
-      text: 'The RateLimitMiddleware in app/middleware.py might be formatting HTTP status 429 responses improperly.',
-      pointsTo: 'app/middleware.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Observe how much simulated time passes between the requests in Step 2 of the simulation.',
     'Check whether the refill calculation can ever add fractional tokens or if small time slices are discarded.',

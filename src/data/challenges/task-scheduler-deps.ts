@@ -205,7 +205,24 @@ export const taskSchedulerDepsChallenge: Challenge = {
   story:
     'Our build system schedules multi-step deployment pipelines with complex dependencies. Developers noticed that database migration tasks sometimes run before the database container starts, causing the build to crash. The scheduler uses a topological sort to sequence the dependency graph. In diamond-shaped pipelines, certain dependent tasks are executed before their required parent tasks finish.',
   description:
-    'Our build system schedules multi-step deployment pipelines with complex dependencies. Developers noticed that database migration tasks sometimes run before the database container starts, causing the build to crash. The scheduler uses a topological sort to sequence the dependency graph. In diamond-shaped pipelines, certain dependent tasks are executed before their required parent tasks finish.',
+    'A diamond-shaped task pipeline crashes because dependent tasks run before their required parents finish. Examine the DFS topological ordering in app/graph.py to discover why tasks are added to the execution schedule in preorder instead of postorder.',
+  structuredDescription: {
+    problem:
+      'Tasks in a multi-step build pipeline are scheduled out of order, causing downstream deployment steps to execute before their necessary database and build dependencies finish.',
+    context:
+      'The DependencyGraph resolves tasks using a recursive depth-first search to produce a linear topological execution schedule executed by PipelineExecutor.',
+    task:
+      'Inspect the visit() helper in app/graph.py and determine why task nodes are appended to the execution list before their prerequisite dependencies are traversed.',
+    expectedBehavior:
+      'All prerequisite dependencies must appear strictly before dependent tasks in the generated schedule, guaranteeing safe execution.',
+    constraints: [
+      'Topological ordering must enforce postorder insertion (prerequisites before dependents).',
+      'Cyclic graphs or unknown dependencies must be rejected.',
+      'Graph traversal must produce deterministic results across identical pipeline definitions.',
+    ],
+    successCriteria:
+      'All unit tests in tests/test_scheduler.py pass, and the diamond pipeline demo runs to completion with Pipeline status: ALL_PASSED.',
+  },
   expectedInvariants: [
     'Must execute all prerequisite dependencies before running any dependent task.',
     'Must detect circular dependency cycles and raise a descriptive error.',
@@ -233,29 +250,7 @@ export const taskSchedulerDepsChallenge: Challenge = {
     text: 'Check the GraphValidator in app/validator.py line 12; missing cycle detection might allow cyclic graphs to proceed.',
     pointsTo: 'app/validator.py',
   },
-  assistantHints: [
-    {
-      id: 'scheduler-hint-1',
-      text: 'The GraphValidator in app/validator.py contains a TODO comment about Tarjans algorithm for cycle detection.',
-      pointsTo: 'app/validator.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'scheduler-hint-2',
-      text: 'In app/graph.py, look at whether order.append occurs before or after iterating through task dependencies in the DFS traversal.',
-      pointsTo: 'app/graph.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'scheduler-hint-3',
-      text: 'The PipelineExecutor in app/executor.py might be iterating over the tasks dictionary in non-deterministic order.',
-      pointsTo: 'app/executor.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Look at the computed execution order printed at the beginning of the demo.',
     'Check why deploy_app appears at the front of the list even though it requires build_image and migrate_db.',

@@ -199,7 +199,24 @@ export const orderPipelineDiscountsChallenge: Challenge = {
   story:
     'Our store uses an order calculation pipeline to compute totals, promotional discounts, and shipping fees. Customers without any promo codes began receiving unexpected VIP and seasonal discounts on their receipts. The billing service is losing revenue because discounts applied to one customer appear on subsequent customer orders. Tracing the discount processor will reveal how promotion state persists between independent orders.',
   description:
-    'Our store uses an order calculation pipeline to compute totals, promotional discounts, and shipping fees. Customers without any promo codes began receiving unexpected VIP and seasonal discounts on their receipts. The billing service is losing revenue because discounts applied to one customer appear on subsequent customer orders. Tracing the discount processor will reveal how promotion state persists between independent orders.',
+    'Customers without promotional coupons are receiving unearned discounts because discount data leaks across consecutive checkouts. Inspect app/discounts.py to discover how default function arguments retain in-memory state across multiple order calculations.',
+  structuredDescription: {
+    problem:
+      'Orders processed without coupon codes are having discounts applied from earlier customer orders, artificially reducing totals and leaking promotional allowances.',
+    context:
+      'The order processing pipeline calculates totals by passing the customer order through compute_order_discounts, which searches for active promotions and sums discount values.',
+    task:
+      'Examine the function signature and initialization in app/discounts.py to understand how Python evaluates default argument values.',
+    expectedBehavior:
+      'Every order calculation must operate on its own isolated discount collection without inheriting state from previous orders.',
+    constraints: [
+      'Orders with valid coupons must receive the exact discount specified.',
+      'Orders with empty coupon lists must receive exactly 0 discounts.',
+      'Order calculations must be pure and repeatable regardless of execution order.',
+    ],
+    successCriteria:
+      'The test suite in tests/test_discounts.py passes, and Order 2 in app/main.py outputs Discounts: $0 ([]), Total: $66.',
+  },
   expectedInvariants: [
     'Must only apply promotional discounts that are explicitly attached to the current order.',
     'Must compute each customer order independently without leaking previous order state.',
@@ -229,29 +246,7 @@ export const orderPipelineDiscountsChallenge: Challenge = {
     text: 'Check the coupon resolution map in app/rules.py line 12; string casing or whitespace might be triggering false positive matches.',
     pointsTo: 'app/rules.py',
   },
-  assistantHints: [
-    {
-      id: 'pipeline-hint-1',
-      text: 'The coupon matching in app/rules.py normalizes codes to uppercase and might be matching unexpected codes.',
-      pointsTo: 'app/rules.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'pipeline-hint-2',
-      text: 'Inspect the parameter defaults in app/discounts.py for compute_order_discounts, specifically discounts_accumulator.',
-      pointsTo: 'app/discounts.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'pipeline-hint-3',
-      text: 'The TaxCalculator in app/tax.py contains a TODO comment regarding jurisdictional exemptions that might distort final totals.',
-      pointsTo: 'app/tax.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Observe why Bob receives a VIP25 discount on Order 2 even though his coupon_codes list is empty.',
     'Check when the default list in compute_order_discounts is created in Python.',

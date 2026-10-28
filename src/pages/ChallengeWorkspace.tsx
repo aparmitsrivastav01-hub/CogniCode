@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { BugAnswer, Interaction, RoundSession, TestReport } from '../types/round';
 import { getChallengeBySlug, challenges } from '../data/challenges';
 import { pyRunner } from '../lib/pyRunner';
+import { GemmaService } from '../lib/gemma';
 import { WorkspaceTopBar, type WorkspaceStep } from '../components/workspace/WorkspaceTopBar';
 import { WorkspaceLeftPanel } from '../components/workspace/WorkspaceLeftPanel';
 import { WorkspaceEditor } from '../components/workspace/WorkspaceEditor';
@@ -39,6 +40,9 @@ export default function ChallengeWorkspace() {
     setOutputCorrect(false);
     setRevealedOutput(null);
     setOutputFeedback('');
+    setGemmaPredictionFeedback('');
+    setGemmaTestExplanation('');
+    setGemmaExplanation('');
     setExplanation('');
     setTestReport(null);
     setSeconds((round.estimatedMinutes || 10) * 60);
@@ -46,7 +50,7 @@ export default function ChallengeWorkspace() {
     setInteractions([]);
   }, [round.id]);
   const [leftTab, setLeftTab] = useState<'problem' | 'explorer'>('problem');
-  const [activeBottomTab, setActiveBottomTab] = useState<WorkspaceBottomTab>('Output');
+  const [activeBottomTab, setActiveBottomTab] = useState<WorkspaceBottomTab>('Predict Output');
   const [activeStep, setActiveStep] = useState<WorkspaceStep>('predict');
 
   // Editor state & cursor
@@ -61,13 +65,19 @@ export default function ChallengeWorkspace() {
   const [revealedOutput, setRevealedOutput] = useState<string | null>(null);
   const [outputFeedback, setOutputFeedback] = useState('');
   const [checkingOutput, setCheckingOutput] = useState(false);
+  const [gemmaPredictionFeedback, setGemmaPredictionFeedback] = useState('');
+  const [gemmaPredictionLoading, setGemmaPredictionLoading] = useState(false);
 
   // Explanation State
   const [explanation, setExplanation] = useState('');
+  const [gemmaExplanation, setGemmaExplanation] = useState('');
+  const [gemmaExplanationLoading, setGemmaExplanationLoading] = useState(false);
 
   // Tests State
   const [testReport, setTestReport] = useState<TestReport | null>(null);
   const [testRunning, setTestRunning] = useState(false);
+  const [gemmaTestExplanation, setGemmaTestExplanation] = useState('');
+  const [gemmaTestLoading, setGemmaTestLoading] = useState(false);
 
   // Timer & Hints
   const [seconds, setSeconds] = useState(10 * 60);
@@ -245,32 +255,94 @@ export default function ChallengeWorkspace() {
     setHintReveals(items => [...items, items.length]);
   };
 
-  const recordDecoyChoice = (messageText: string, choice: 'trust' | 'verify') => {
-    if (locked) return;
-    setInteractions(items => [...items, { message: messageText, choice }]);
-  };
-
   const checkOutput = async () => {
     if (locked || runtimeState !== 'ready' || checkingOutput) return;
     setCheckingOutput(true);
     setOutputFeedback('');
+    setGemmaPredictionFeedback('');
+    setGemmaPredictionLoading(true);
+
+    let actualStdout = '';
+    let isCorrect = false;
+
     try {
       const result = await pyRunner.runEntry(pythonFiles, round.entryFile);
       setOutputAttempts(count => count + 1);
       if (result.error) throw new Error(result.stderr || result.error);
-      const correct = normaliseOutput(outputAnswer) === normaliseOutput(result.stdout);
-      setOutputCorrect(prev => prev || correct);
+      actualStdout = result.stdout;
+      isCorrect = normaliseOutput(outputAnswer) === normaliseOutput(actualStdout);
+      setOutputCorrect(prev => prev || isCorrect);
       setOutputFeedback(
-        correct
-          ? 'Correct. Your prediction matches the program output.'
-          : 'Not quite. Try again or run the entry to inspect output.'
+        isCorrect
+          ? 'Correct! Your prediction matches the live Python stdout.'
+          : 'Prediction diverged from actual program output.'
       );
-      if (correct) setRevealedOutput(result.stdout);
+      if (isCorrect) setRevealedOutput(actualStdout);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setOutputFeedback('Execution error: ' + message);
+      setGemmaPredictionLoading(false);
+      setCheckingOutput(false);
+      return;
     } finally {
       setCheckingOutput(false);
+    }
+
+    // Call Gemma 4 to evaluate the prediction with full execution context
+    try {
+      const evaluation = await GemmaService.evaluatePrediction({
+        challenge: round,
+        prediction: outputAnswer,
+        actualStdout,
+        isCorrect,
+        markedBug,
+        testReport,
+      });
+      setGemmaPredictionFeedback(evaluation);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setGemmaPredictionFeedback(`⚠️ Gemma evaluation unavailable: ${errMsg}`);
+    } finally {
+      setGemmaPredictionLoading(false);
+    }
+  };
+
+  const handleAskGemmaTestHelp = async () => {
+    if (!testReport || gemmaTestLoading) return;
+    setGemmaTestLoading(true);
+    try {
+      const explanation = await GemmaService.interpretTests({
+        challenge: round,
+        testReport,
+        markedBug,
+      });
+      setGemmaTestExplanation(explanation);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setGemmaTestExplanation(`⚠️ Test interpretation unavailable: ${errMsg}`);
+    } finally {
+      setGemmaTestLoading(false);
+    }
+  };
+
+  const handleRequestGemmaExplanation = async (full: boolean) => {
+    if (gemmaExplanationLoading) return;
+    setGemmaExplanationLoading(true);
+    try {
+      const text = await GemmaService.explainExecution({
+        challenge: round,
+        predictionAttempted: full,
+        outputCorrect,
+        markedBug,
+        testReport,
+        revealedOutput,
+      });
+      setGemmaExplanation(text);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setGemmaExplanation(`⚠️ Explanation unavailable: ${errMsg}`);
+    } finally {
+      setGemmaExplanationLoading(false);
     }
   };
 
@@ -307,31 +379,28 @@ export default function ChallengeWorkspace() {
 
   const handleStepChange = (step: WorkspaceStep) => {
     setActiveStep(step);
-    if (step === 'predict') {
-      setActiveBottomTab('Output');
-    } else if (step === 'debug') {
+    if (step === 'understand') {
+      setLeftTab('problem');
+    } else if (step === 'plan') {
+      setLeftTab('problem');
+    } else if (step === 'test') {
+      setActiveBottomTab('Test Results');
+    } else if (step === 'investigate') {
       setActiveBottomTab('Find Bug');
+    } else if (step === 'verify') {
+      setActiveBottomTab('Test Results');
     } else if (step === 'explain') {
       setActiveBottomTab('Explain');
+    } else if (step === 'predict') {
+      setActiveBottomTab('Predict Output');
+    } else if (step === 'debug') {
+      setActiveBottomTab('Find Bug');
     }
   };
 
   const formattedTime = `${Math.floor(seconds / 60)
     .toString()
     .padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
-
-  const assistantMessages = round.assistantHints?.length
-    ? round.assistantHints.map(h => ({
-        id: h.id,
-        text: h.text,
-        pointsTo: h.pointsTo,
-      }))
-    : [
-        {
-          text: round.decoy.text,
-          pointsTo: round.decoy.pointsTo,
-        },
-      ];
 
   return (
     <div className="ws-viewport">
@@ -360,6 +429,7 @@ export default function ChallengeWorkspace() {
           category={round.category}
           title={round.title}
           description={round.description}
+          structuredDescription={round.structuredDescription}
           expectedBehaviour={round.expectedBehaviour}
           hintsRevealed={hintReveals}
           hintsRubric={round.explainRubric}
@@ -382,17 +452,21 @@ export default function ChallengeWorkspace() {
           />
 
           <WorkspaceBottomPanel
+            challenge={round}
             activeTab={activeBottomTab}
             onTabChange={setActiveBottomTab}
             entryFile={round.entryFile}
             outputAnswer={outputAnswer}
             onOutputAnswerChange={setOutputAnswer}
             onCheckOutput={checkOutput}
-            onRunEntry={revealOutput}
             checkingOutput={checkingOutput}
             revealedOutput={revealedOutput}
             outputFeedback={outputFeedback}
             outputCorrect={outputCorrect}
+            outputAttempts={outputAttempts}
+            gemmaPredictionFeedback={gemmaPredictionFeedback}
+            gemmaPredictionLoading={gemmaPredictionLoading}
+            onRunEntry={revealOutput}
             runtimeState={runtimeState}
             runtimeError={runtimeError}
             locked={locked}
@@ -402,8 +476,14 @@ export default function ChallengeWorkspace() {
             onRunTests={runTests}
             testRunning={testRunning}
             testReport={testReport}
+            gemmaTestExplanation={gemmaTestExplanation}
+            gemmaTestLoading={gemmaTestLoading}
+            onAskGemmaTestHelp={handleAskGemmaTestHelp}
             explanation={explanation}
             onExplanationChange={setExplanation}
+            gemmaExplanation={gemmaExplanation}
+            gemmaExplanationLoading={gemmaExplanationLoading}
+            onRequestGemmaExplanation={handleRequestGemmaExplanation}
           />
         </div>
 
@@ -411,10 +491,13 @@ export default function ChallengeWorkspace() {
         <WorkspaceAssistant
           roundTitle={round.title}
           entryFile={round.entryFile}
-          messages={assistantMessages}
-          interactions={interactions}
-          onRecordChoice={recordDecoyChoice}
-          onSelectTarget={openFile}
+          challenge={round}
+          currentStage={activeStep}
+          markedBug={markedBug}
+          testReport={testReport}
+          outputAnswer={outputAnswer}
+          outputCorrect={outputCorrect}
+          revealedOutput={revealedOutput}
           locked={locked}
         />
       </div>

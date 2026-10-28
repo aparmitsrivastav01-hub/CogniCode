@@ -202,7 +202,24 @@ export const lruCacheTtlChallenge: Challenge = {
   story:
     'Our service caches database queries using an LRU cache with time-to-live expiration. The analytics team reported high database load because frequently queried user profiles are repeatedly refetched. The repository logs indicate that active hot keys are being kicked out while older cold keys remain in memory. The issue causes cache misses for items that were read only seconds ago.',
   description:
-    'Our service caches database queries using an LRU cache with time-to-live expiration. The analytics team reported high database load because frequently queried user profiles are repeatedly refetched. The repository logs indicate that active hot keys are being kicked out while older cold keys remain in memory. The issue causes cache misses for items that were read only seconds ago.',
+    'Frequently queried user profiles are being kicked out of the cache when new entries arrive, resulting in high database query load. Investigate app/cache.py to discover why read operations fail to mark cached entries as recently used.',
+  structuredDescription: {
+    problem:
+      'Frequently accessed cache entries are being evicted prematurely, forcing the repository layer to query the database repeatedly for items that were just accessed.',
+    context:
+      'The application relies on an LRUCache backed by OrderedDict to keep the most recent entries in memory while shedding stale or cold keys when capacity is reached.',
+    task:
+      'Trace how get() and put() manage entry positions in app/cache.py, and determine why reading a key does not protect it from LRU eviction.',
+    expectedBehavior:
+      'Whenever a key is accessed via get(), its recency position must be updated so that subsequent evictions remove only true least-recently-used items.',
+    constraints: [
+      'The cache must strictly honor its maximum capacity limit.',
+      'TTL expiration checks must remain intact during lookups.',
+      'Data retrieval performance must remain O(1) average time.',
+    ],
+    successCriteria:
+      'Tests in tests/test_cache.py pass without errors, and the Phase 4 check in app/main.py produces a [CACHE HIT] for user usr_1.',
+  },
   expectedInvariants: [
     'Must evict the least recently accessed item when capacity is exceeded.',
     'Must update the access order of an entry whenever it is read or written.',
@@ -226,29 +243,7 @@ export const lruCacheTtlChallenge: Challenge = {
     text: 'Check the database fallback counter in app/repository.py line 24; cache misses might be triggered by an incorrect database key check.',
     pointsTo: 'app/repository.py',
   },
-  assistantHints: [
-    {
-      id: 'cache-hint-1',
-      text: 'The UserRepository in app/repository.py might not be caching query results properly on miss.',
-      pointsTo: 'app/repository.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'cache-hint-2',
-      text: 'Check how OrderedDict tracks entry recency in app/cache.py when an existing entry is read via get().',
-      pointsTo: 'app/cache.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'cache-hint-3',
-      text: 'The SimulatedClock in app/clock.py might be advancing timestamp values unexpectedly.',
-      pointsTo: 'app/clock.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Observe which user gets evicted in Phase 3 when usr_3 is added.',
     'Look at the difference between how put() and get() handle the item order in OrderedDict.',

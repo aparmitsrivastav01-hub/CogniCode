@@ -253,7 +253,24 @@ export const bankTransferLedgerChallenge: Challenge = {
   story:
     'Our payment gateway processes transfers between customer accounts with a flat transaction fee. An operations auditor discovered that our total ledger balance does not equal the sum of all customer accounts. When a customer attempted a transfer to a frozen or non-existent destination account, the sender lost money but the recipient never received it. The ledger entries show the withdrawal succeeded even though the overall transfer failed.',
   description:
-    'Our payment gateway processes transfers between customer accounts with a flat transaction fee. An operations auditor discovered that our total ledger balance does not equal the sum of all customer accounts. When a customer attempted a transfer to a frozen or non-existent destination account, the sender lost money but the recipient never received it. The ledger entries show the withdrawal succeeded even though the overall transfer failed.',
+    'When a transfer to a frozen or non-existent destination account fails, money is permanently lost from the system and the ledger audit fails. Trace the order of debit operations and validation checks in app/transfer.py to discover why failed transfers corrupt the balance.',
+  structuredDescription: {
+    problem:
+      'Attempting a transfer to a frozen account raises an error, but the sender is debited anyway and the funds disappear from the total ledger capital.',
+    context:
+      'The TransferService handles account debits, credits, and flat fee collections, while SystemLedger audits the entire banking system for conservation of money.',
+    task:
+      'Inspect the sequence of operations in app/transfer.py to find why sender funds are deducted before the destination account is validated.',
+    expectedBehavior:
+      'All validation checks on sender and receiver accounts must succeed before any account balances are modified or debit records posted.',
+    constraints: [
+      'Total capital across all accounts plus fees must strictly equal initial system capital.',
+      'Transfers to frozen or non-existent accounts must fail without deducting any money or fees.',
+      'Sender accounts must possess sufficient funds to cover the transfer amount plus the transaction fee.',
+    ],
+    successCriteria:
+      'The unit tests in tests/test_transfer.py pass, and the reconciliation audit in app/main.py outputs AUDIT PASS: System balanced with zero discrepancy.',
+  },
   expectedInvariants: [
     'Must keep total system money conserved across all accounts and fee pools.',
     'Must validate recipient eligibility before debiting funds from the sender account.',
@@ -287,29 +304,7 @@ export const bankTransferLedgerChallenge: Challenge = {
     text: 'Check the audit discrepancy formula in app/ledger.py line 40; the fee pool calculation might be subtracting total_fees twice.',
     pointsTo: 'app/ledger.py',
   },
-  assistantHints: [
-    {
-      id: 'bank-hint-1',
-      text: 'Look at the audit calculation in app/ledger.py; it sums account balances and fees against initial capital.',
-      pointsTo: 'app/ledger.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-    {
-      id: 'bank-hint-2',
-      text: 'Examine the order of operations in app/transfer.py: notice when sender.balance is reduced relative to receiver validation.',
-      pointsTo: 'app/transfer.py',
-      isDecoy: false,
-      recommendedChoice: 'trust',
-    },
-    {
-      id: 'bank-hint-3',
-      text: 'Check AccountRepository in app/accounts.py to ensure the get method does not return stale account objects.',
-      pointsTo: 'app/accounts.py',
-      isDecoy: true,
-      recommendedChoice: 'verify',
-    },
-  ],
+  assistantHints: [],
   hints: [
     'Follow what happens to Alice balance when the transfer to Charlie raises an exception.',
     'Notice whether the sender balance is modified before or after checking if Charlie account is active.',
